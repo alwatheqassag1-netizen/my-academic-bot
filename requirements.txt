@@ -1,3 +1,4 @@
 pyTelegramBotAPI
 Flask
-psycopg2-binary
+pymongo
+dnspython
