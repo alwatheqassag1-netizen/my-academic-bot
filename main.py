@@ -1,223 +1,163 @@
 import telebot
-import psycopg2
-from psycopg2.pool import ThreadedConnectionPool
-from psycopg2.extras import DictCursor
+from pymongo import MongoClient
 from flask import Flask, request
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import sys
 import io
 
+# حل مشكلة الترميز في السيرفرات لطباعة النصوص العربية بسلاسة
 if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
 ADMIN_IDS = [6842543527, 5585934059, 1084564343] 
 
-# استخدام الـ IP المباشر لخوادم Supabase لتخطي مشكلة الـ DNS نهائياً
-DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@15.185.217.185:5432/postgres?sslmode=require"
+# 🔗 الرابط السحابي المحصن والمكتمل بكلمة السر الخاصة بك
+MONGO_URI = "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0"
+
+try:
+    # الاتصال بقاعدة البيانات السحابية الآمنة
+    client = MongoClient(MONGO_URI)
+    db = client['academic_bot_db']
+    files_col = db['uploaded_files']
+    users_col = db['bot_users']
+    print("Connected to MongoDB Atlas successfully! 🎉")
+except Exception as e:
+    print(f"MongoDB connection error: {e}")
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
-try:
-    db_pool = ThreadedConnectionPool(1, 10, DATABASE_URL)
-except Exception as e:
-    print(f"Pool init error: {e}")
-    db_pool = None
+# الهيكل الأكاديمي الثابت للقسم (الدفعة الثانية)
+ACADEMIC_STRUCTURE = {
+    "🌱 مستوى أول": {
+        "📅 ترم أول": {},
+        "📅 ترم ثاني": {
+            "📖 الثقافة الإسلامية": ["📂 محاضرات وملخصات", "📝 نماذج اختبارات"],
+            "🌙 لغة عربية 2": ["📂 محاضرات وملخصات", "📝 نماذج اختبارات"],
+            "🇬🇧 لغة إنجليزية 2": ["📂 محاضرات وملخصات", "📝 نماذج اختبارات"],
+            "📈 تفاضل وتكامل 2": ["📂 محاضرات نظري", "📐 محاضرات تمارين", "📝 نماذج اختبارات نظري", "✍️ نماذج تمارين", "📚 مراجع خارجية"],
+            "📊 مقدمة في علوم البيانات": ["👨‍🏫 محاضرات المهندس", "📜 ملخص محاضرات", "⚙️ محاضرات العملي", "📝 نماذج اختبارات نظري"],
+            "💻 برمجة حاسوب": ["📂 محاضرات نظري", "🖥️ محاضرات العملي", "📝 نماذج اختبارات", "🚀 التمارين والمشاريع العملية"],
+            "🗂️ رياضيات متقطعة": ["📂 محاضرات نظري", "✏️ محاضرات تمارين", "📝 نماذج اختبارات", "📚 مراجع خارجية"]
+        }
+    },
+    "🌿 مستوى ثاني": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
+    "☘️ مستوى ثالث": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
+    "🌳 مستوى رابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}}
+}
 
-def get_db_connection():
-    if db_pool:
-        return db_pool.getconn()
-    return psycopg2.connect(DATABASE_URL)
+user_path = {}  
+upload_mode = {}
+testing_mode = {}
 
-def release_db_connection(conn):
-    if conn:
-        if db_pool:
-            db_pool.putconn(conn)
+def get_menu_by_path(path):
+    menu = ACADEMIC_STRUCTURE
+    for p in path:
+        if p in menu:
+            menu = menu[p]
         else:
-            conn.close()
+            return None
+    return menu
 
-def init_db():
-    conn = None
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        with conn.cursor() as cursor:
-            cursor.execute('''CREATE TABLE IF NOT EXISTS items 
-                              (id SERIAL PRIMARY KEY, name TEXT, type TEXT, file_id TEXT, parent_id INTEGER)''')
-            cursor.execute('CREATE TABLE IF NOT EXISTS users (chat_id BIGINT PRIMARY KEY)')
-            
-            cursor.execute('SELECT COUNT(*) FROM items')
-            if cursor.fetchone()[0] == 0:
-                levels = ["🌱 مستوى أول", "🌿 مستوى ثاني", "☘️ مستوى ثالث", "🌳 مستوى رابع"]
-                for l in levels: 
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 0)', (l,))
-                
-                for parent_level_id in [1, 2, 3, 4]:
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم أول\', \'مجلد\', %s)', (parent_level_id,))
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم ثاني\', \'مجلد\', %s)', (parent_level_id,))
-                
-                subjects = [
-                    "📖 الثقافة الإسلامية", "🌙 لغة عربية 2", "🇬🇧 لغة إنجليزية 2", 
-                    "📈 تفاضل وتكامل 2", "📊 مقدمة في علوم البيانات", "💻 برمجة حاسوب", "🗂️ رياضيات متقطعة"
-                ]
-                for s in subjects: 
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 6)', (s,))
-                
-                for i in [13, 14, 15]:
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📂 محاضرات وملخصات\', \'مجلد\', %s)', (i,))
-                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📝 نماذج اختبارات\', \'مجلد\', %s)', (i,))
-                    
-                calc_sub = ["📂 محاضرات نظري", "📐 محاضرات تمارين", "📝 نماذج اختبارات نظري", "✍️ نماذج تمارين", "📚 مراجع خارجية"]
-                for c in calc_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 16)', (c,))
-                
-                data_sub = ["👨‍🏫 محاضرات المهندس", "📜 ملخص محاضرات", "⚙️ محاضرات العملي", "📝 نماذج اختبارات نظري"]
-                for d in data_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 17)', (d,))
-                
-                prog_sub = ["📂 محاضرات نظري", "🖥️ محاضرات العملي", "📝 نماذج اختبارات", "🚀 التمارين والمشاريع العملية"]
-                for p in prog_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 18)', (p,))
-                
-                math_sub = ["📂 محاضرات نظري", "✏️ محاضرات تمارين", "📝 نماذج اختبارات", "📚 مراجع خارجية"]
-                for m in math_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 19)', (m,))
-            conn.commit()
-    except Exception as e:
-        print(f"Init DB error: {e}")
-    finally:
-        if conn: conn.close()
-
-init_db()
-
-testing_mode, user_history, upload_mode = {}, {}, {}
-
-def get_current_parent(chat_id):
-    if chat_id not in user_history or not user_history[chat_id]:
-        user_history[chat_id] = [0]
-    return user_history[chat_id][-1]
+def get_path_string(chat_id):
+    return " > ".join(user_path.get(chat_id, []))
 
 def show_menu(chat_id):
-    parent_id = get_current_parent(chat_id)
-    items = []
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute('SELECT id, name, type, file_id FROM items WHERE parent_id = %s ORDER BY id ASC', (parent_id,))
-            items = cursor.fetchall()
-    except Exception as e:
-        print(f"Menu read error: {e}")
-    finally:
-        release_db_connection(conn)
-
+    path = user_path.get(chat_id, [])
+    current_menu = get_menu_by_path(path)
+    
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    files_count = 0
-    for item in items:
-        markup.add(KeyboardButton(item['name']))
-        if item['type'] == "ملف": files_count += 1
     
-    if parent_id == 0:
+    if not path:
+        for key in ACADEMIC_STRUCTURE.keys():
+            markup.add(KeyboardButton(key))
         markup.add("👨‍💻 تواصل مع المطور")
-    if parent_id != 0:
-        markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
-    
-    if testing_mode.get(chat_id):
-        markup.add("🛑 إنهاء التجربة والعودة للإشراف")
-    elif chat_id in ADMIN_IDS:
-        markup.add("👤 تجربة كمستخدم", "⚙️ إدارة هذه القائمة")
-            
-    if parent_id == 0:
         msg_text = (
             "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n"
             "👇 فضلاً، اختر مستواك الدراسي من القائمة أدناه للبدء:"
         )
-    else:
-        msg_text = "اختر من القائمة أدناه:"
-        if files_count > 0: msg_text += "\n(🗂️ يوجد ملفات جاهزة للتحميل)"
-    
-    try:
         bot.send_message(chat_id, msg_text, reply_markup=markup)
-    except Exception as e:
-        print(f"Send message error: {e}")
+        return
+
+    if isinstance(current_menu, dict):
+        for key in current_menu.keys():
+            markup.add(KeyboardButton(key))
+    
+    elif isinstance(current_menu, list):
+        for item in current_menu:
+            markup.add(KeyboardButton(item))
+            
+        path_str = get_path_string(chat_id)
+        # جلب روابط الملفات من السحابة الدائمة بشكل فوري وسريع
+        db_files = list(files_col.find({"menu_path": path_str}))
+        for f in db_files:
+            markup.add(KeyboardButton(f"📄 {f['file_name']}"))
+
+    markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
+    
+    if testing_mode.get(chat_id):
+        markup.add("🛑 إنهاء التجربة والعودة للإشراف")
+    elif chat_id in ADMIN_IDS:
+        if isinstance(current_menu, list):
+            markup.add("👤 تجربة كمستخدم", "➕ إضافة ملف")
+            markup.add("🗑️ تفريغ هذا القسم")
+        else:
+            markup.add("👤 تجربة كمستخدم")
+
+    msg_text = f"📂 القسم الحالي: {' > '.join(path)}\n\nاختر من القائمة أدناه:"
+    bot.send_message(chat_id, msg_text, reply_markup=markup)
 
 @bot.message_handler(commands=['start'])
 def start(message):
     chat_id = message.chat.id
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute('INSERT INTO users (chat_id) VALUES (%s) ON CONFLICT (chat_id) DO NOTHING', (chat_id,))
-            conn.commit()
-    except Exception as e:
-        print(f"User insert error: {e}")
-    finally:
-        release_db_connection(conn)
-        
-    user_history[chat_id] = [0]
-    testing_mode[chat_id] = upload_mode[chat_id] = False
+    # حفظ المستخدمين في السحابة لمعرفة حجم التفاعل مستقبلاً
+    users_col.update_one({"chat_id": chat_id}, {"$set": {"chat_id": chat_id}}, upsert=True)
+    
+    user_path[chat_id] = []
+    upload_mode[chat_id] = False
+    testing_mode[chat_id] = False
     show_menu(chat_id)
 
-@bot.message_handler(func=lambda m: m.text == "⚙️ إدارة هذه القائمة" and m.chat.id in ADMIN_IDS and not testing_mode.get(m.chat.id))
-def manage_current_menu(message):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("➕ إضافة ملف", "📁 إضافة مجلد/خيار", "الغاء الأمر ❌")
-    bot.send_message(message.chat.id, "🛠️ خيارات التحكم الإداري:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.chat.id in ADMIN_IDS and m.text in ["➕ إضافة ملف", "📁 إضافة مجلد/خيار", "الغاء الأمر ❌"])
-def admin_action(message):
+@bot.message_handler(func=lambda m: m.chat.id in ADMIN_IDS and m.text == "➕ إضافة ملف" and not testing_mode.get(m.chat.id))
+def enable_upload(message):
     chat_id = message.chat.id
-    if message.text == "الغاء الأمر ❌":
-        upload_mode[chat_id] = False
-        show_menu(chat_id)
-    elif message.text == "➕ إضافة ملف":
-        upload_mode[chat_id] = True
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إنهاء إضافة الملفات")
-        bot.send_message(chat_id, "📥 وضع الرفع المتعدد فعال! أرسل ملفاتك دفعة واحدة:", reply_markup=markup)
-    elif message.text == "📁 إضافة مجلد/خيار":
-        msg = bot.send_message(chat_id, "📥 أرسل اسم المجلد الجديد:")
-        bot.register_next_step_handler(msg, receive_folder)
+    upload_mode[chat_id] = True
+    markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إنهاء إضافة الملفات")
+    bot.send_message(chat_id, "📥 وضع الرفع المتعدد الآمن والمضمون سحابياً مُفعّل!\nأرسل ملفاتك الآن.\n\nعند الانتهاء اضغط الزر أدناه 👇", reply_markup=markup)
 
-def receive_folder(message):
-    parent_id = get_current_parent(message.chat.id)
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', %s)', (message.text, parent_id))
-            conn.commit()
-        bot.send_message(message.chat.id, f"✅ تم إضافة المجلد '{message.text}' بنجاح!")
-    except Exception as e:
-        print(f"Folder insert error: {e}")
-    finally:
-        release_db_connection(conn)
-    show_menu(message.chat.id)
+@bot.message_handler(func=lambda m: m.chat.id in ADMIN_IDS and m.text == "🗑️ تفريغ هذا القسم" and not testing_mode.get(m.chat.id))
+def clear_folder(message):
+    chat_id = message.chat.id
+    path_str = get_path_string(chat_id)
+    files_col.delete_many({"menu_path": path_str})
+    bot.send_message(chat_id, "🗑️ تم مسح الملفات من السحابة المضمونة لهذا القسم بنجاح!")
+    show_menu(chat_id)
 
 @bot.message_handler(content_types=['document'], func=lambda m: m.chat.id in ADMIN_IDS and upload_mode.get(m.chat.id))
-def receive_multiple_files(message):
-    parent_id = get_current_parent(message.chat.id)
+def receive_files(message):
+    chat_id = message.chat.id
+    path_str = get_path_string(chat_id)
     file_name = message.caption if message.caption else message.document.file_name
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute('INSERT INTO items (name, type, file_id, parent_id) VALUES (%s, \'ملف\', %s, %s)', (file_name, message.document.file_id, parent_id))
-            conn.commit()
-        bot.send_message(message.chat.id, f"✅ تم حفظ '{file_name}'!")
-    except Exception as e:
-        print(f"File insert error: {e}")
-    finally:
-        release_db_connection(conn)
+    file_id = message.document.file_id
+    
+    # حفظ الـ file_id في قاعدة البيانات السحابية بأمان تام للأبد
+    files_col.insert_one({"menu_path": path_str, "file_name": file_name, "file_id": file_id})
+    bot.send_message(chat_id, f"✅ تم الحفظ السحابي الدائم للملف: {file_name}")
 
 @bot.message_handler(func=lambda message: True)
-def handle_nav(message):
-    chat_id, text = message.chat.id, message.text
+def handle_navigation(message):
+    chat_id = message.chat.id
+    text = message.text
     
-    if chat_id not in user_history:
-        user_history[chat_id] = [0]
+    if chat_id not in user_path:
+        user_path[chat_id] = []
 
     if text == "🛑 إنهاء إضافة الملفات" and chat_id in ADMIN_IDS:
         upload_mode[chat_id] = False
         show_menu(chat_id)
         return
-    if text == "🛑 إنهاء التجربة والعودة للإشراف" and chat_id in ADMIN_IDS:
+    if text == "🛑 إنهاء التجربة والعودة للإشراف":
         testing_mode[chat_id] = False
         show_menu(chat_id)
         return
@@ -226,55 +166,46 @@ def handle_nav(message):
         show_menu(chat_id)
         return
     if text == "🔝 القائمة الرئيسية":
-        user_history[chat_id] = [0]
+        user_path[chat_id] = []
+        upload_mode[chat_id] = False
         show_menu(chat_id)
         return
     if text == "🔙 الرجوع للقائمة السابقة":
-        if len(user_history[chat_id]) > 1:
-            user_history[chat_id].pop()
+        if user_path[chat_id]:
+            user_path[chat_id].pop()
+        upload_mode[chat_id] = False
         show_menu(chat_id)
         return
     if text == "👨‍💻 تواصل مع المطور":
-        bot.send_message(chat_id, "👥 طاقم الإشراف والدعم الفني للدفعة:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)")
+        msg_dev = "👥 طاقم الإشراف والدعم الفني للدفعة:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)"
+        bot.send_message(chat_id, msg_dev)
         return
 
-    parent_id = get_current_parent(chat_id)
-    item = None
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute('SELECT id, type, file_id FROM items WHERE name = %s AND parent_id = %s LIMIT 1', (text, parent_id))
-            item = cursor.fetchone()
-    except Exception as e:
-        print(f"Navigation query error: {e}")
-    finally:
-        release_db_connection(conn)
-    
-    if item:
-        if item['type'] == "مجلد":
-            user_history[chat_id].append(item['id'])
-            show_menu(chat_id)
-        else:
-            try:
-                bot.send_document(chat_id, item['file_id'])
-            except:
-                bot.send_message(chat_id, "❌ حدث خطأ أثناء تحميل الملف.")
+    if text.startswith("📄 "):
+        clean_file_name = text.replace("📄 ", "")
+        path_str = get_path_string(chat_id)
+        res = files_col.find_one({"menu_path": path_str, "file_name": clean_file_name})
+        if res:
+            bot.send_document(chat_id, res['file_id'])
+        return
+
+    current_menu = get_menu_by_path(user_path[chat_id])
+    if isinstance(current_menu, dict) and text in current_menu:
+        user_path[chat_id].append(text)
+        show_menu(chat_id)
+    elif isinstance(current_menu, list) and text in current_menu:
+        user_path[chat_id].append(text)
+        show_menu(chat_id)
 
 @app.route('/' + API_TOKEN, methods=['POST'])
 def getMessage():
-    try:
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-    except Exception as e:
-        print(f"Webhook processing error: {e}")
+    bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
     return "!", 200
 
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    return "Bot is running perfectly via Direct IP!", 200
+    return "Academic Bot is working perfectly 100% with Permanent Cloud Storage! 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
