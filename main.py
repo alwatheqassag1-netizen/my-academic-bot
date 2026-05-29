@@ -27,7 +27,7 @@ except Exception as e:
     print(f"MongoDB connection error: {e}")
 
 if admins_col.count_documents({}) == 0:
-    initial_admins = [{"id": SUPER_ADMIN_ID}, {"id": 5585934059}, {"id": 1084564343}, {"id": 8545242147}]
+    initial_admins = [{"id": SUPER_ADMIN_ID}, {"id": 8545242147}]
     admins_col.insert_many(initial_admins)
 
 if settings_col.count_documents({}) == 0:
