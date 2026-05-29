@@ -9,7 +9,9 @@ if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
-ADMIN_IDS = [6842543527, 5585934059, 1084564343] 
+
+# 👥 قائمة المشرفين المحدثة بإضافة الآيدي الخاص بالمهندس ليث مرزوق
+ADMIN_IDS = [6842543527, 5585934059, 1084564343, 8545242147] 
 
 MONGO_URI = "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0"
 
@@ -105,7 +107,7 @@ def show_menu(chat_id):
     if not path:
         for key in ACADEMIC_STRUCTURE.keys():
             markup.add(KeyboardButton(key))
-        markup.add("👨‍💻 تواصل مع المشرفين")
+        markup.add("👨‍💻 تواصل مع المطور")
         msg_text = (
             "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n"
             "👇 فضلاً، اختر مستواك الدراسي من القائمة أدناه للبدء:"
@@ -145,12 +147,30 @@ def start(message):
     testing_mode[chat_id] = False
     show_menu(chat_id)
 
-@bot.message_handler(func=lambda m: m.text in ["🛑 إنهاء إضافة الملفات", "🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية", "🛑 إنهاء التجربة والعودة للإشراف"])
+# 🛑 فحص الأزرار الحتمية (وتم إضافة زر التواصل هنا ليعمل فوراً دون تجاهل)
+@bot.message_handler(func=lambda m: m.text in ["🛑 إنهاء إضافة الملفات", "🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية", "🛑 إنهاء التجربة والعودة للإشراف", "👨‍💻 تواصل مع المطور"])
 def handle_control_buttons(message):
     chat_id = message.chat.id
     text = message.text
     
-    if text == "🛑 إنهاء إضافة الملفات":
+    if text == "👨‍💻 تواصل مع المطور":
+        msg_dev = (
+            "👋 مرحباً بك في قسم الدعم الفني والتطوير الأكاديمي!\n\n"
+            "نحن هنا دائماً لخدمتكم، ونستقبل بكل رحابة صدر أي استفسارات، مقترحات، أو ملفات تعليمية "
+            "(ملخصات، ملازم، مراجع، أو نماذج اختبارات) ترون أنها قد تفيد طلاب وطالبات الدفعة وتثري البوت.\n\n"
+            "💬 لا تتردد في التواصل مع طاقم الإشراف مباشرة عبر الحسابات الرسمية أدناه:\n\n"
+            "👔 المندوب العام للدفعة:\n"
+            "🔹 الواثق بالله عساج ⇦ (@AlwatheqAssag)\n\n"
+            "🛠️ فريق الدعم الفني والبرمجي:\n"
+            "🔹 جلال المهدي ⇦ (@jalal_almahdy)\n"
+            "🔹 براء حسن ⇦ (@br44ai)\n"
+            "🔹 ليث مرزوق ⇦ (@laithmarzoq1)\n\n"
+            "✨ مساهمتكم تصنع الفارق.. شكراً لتعاونكم المستمر!"
+        )
+        bot.send_message(chat_id, msg_dev)
+        return
+
+    elif text == "🛑 إنهاء إضافة الملفات":
         upload_mode[chat_id] = False
         bot.send_message(chat_id, "إغلاق وضع الرفع المتعدد... ⚙️")
         show_menu(chat_id)
@@ -204,23 +224,6 @@ def handle_navigation(message):
         testing_mode[chat_id] = True
         show_menu(chat_id)
         return
-        
-    # 🌟 تحديث دالة التواصل لتصبح ترحيبية وتفاعلية تليق بإدارة الدفعة
-    if text == "👨‍💻 تواصل مع المطور":
-        msg_dev = (
-            "👋 مرحباً بك في قسم الدعم الفني والتطوير الأكاديمي!\n\n"
-            "نحن هنا دائماً لخدمتكم، ونستقبل بكل رحابة صدر أي استفسارات، مقترحات، أو ملفات تعليمية "
-            "(ملخصات، ملازم، مراجع، أو نماذج اختبارات) ترون أنها قد تفيد طلاب وطالبات الدفعة وتثري البوت.\n\n"
-            "💬 لا تتردد في التواصل مع طاقم الإشراف مباشرة عبر الحسابات الرسمية أدناه:\n\n"
-            "👔 المندوب العام للدفعة:\n"
-            "🔹 الواثق بالله عساج ⇦ (@AlwatheqAssag)\n\n"
-            "🛠️ فريق الدعم الفني ومشرفي المنصة :\n"
-            "🔹 جلال المهدي ⇦ (@jalal_almahdy)\n"
-            "🔹 براء حسن ⇦ (@br44ai)\n\n"
-            "✨ مساهمتكم تصنع الفارق.. شكراً لتعاونكم المستمر!"
-        )
-        bot.send_message(chat_id, msg_dev)
-        return
 
     if text.startswith("📄 "):
         clean_file_name = text.replace("📄 ", "")
@@ -243,7 +246,7 @@ def getMessage():
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    return "Academic Bot is working perfectly 100% with Folder Structures! 🚀", 200
+    return "Academic Bot is working perfectly 100% with All Admins Active! 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
