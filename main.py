@@ -7,24 +7,24 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import sys
 import io
 
-# ضمان قراءة النصوص والإيموجيات العربية بشكل صحيح داخل السيرفر
+# ضمان القراءة الصحيحة للنصوص العربية
 if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
 ADMIN_IDS = [6842543527, 5585934059, 1084564343] 
 
-# الرابط المعدل والمصحح 100% للاتصال الآمن المستقر عبر IPv4 وبدون المعامل المسبب للخطأ
+# رابط الـ Pooler الآمن والمستقر (IPv4)
 DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@aws-0-me-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
+# مجمع اتصالات متطور ومحصن
 try:
-    # مجمع اتصالات آمن متوافق مع الـ Pooler الجديد لمنع أي بطء
-    db_pool = ThreadedConnectionPool(1, 10, DATABASE_URL)
+    db_pool = ThreadedConnectionPool(1, 15, DATABASE_URL)
 except Exception as e:
-    print(f"Pool error: {e}")
+    print(f"Pool init error: {e}")
     db_pool = None
 
 def get_db_connection():
@@ -33,72 +33,64 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 def release_db_connection(conn):
-    if db_pool:
-        db_pool.putconn(conn)
-    else:
-        conn.close()
+    if conn:
+        if db_pool:
+            db_pool.putconn(conn)
+        else:
+            conn.close()
 
-# نظام إنشاء الجداول والمجلدات التلقائي داخل قاعدة البيانات
+# تهيئة الجداول (مستقلة تماماً لمنع الانهيار الأولي)
 def init_db():
+    conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS items 
-                          (id SERIAL PRIMARY KEY, name TEXT, type TEXT, file_id TEXT, parent_id INTEGER)''')
-        cursor.execute('CREATE TABLE IF NOT EXISTS users (chat_id BIGINT PRIMARY KEY)')
-        conn.commit()
-        
-        cursor.execute('SELECT COUNT(*) FROM items')
-        if cursor.fetchone()[0] == 0:
-            levels = ["🌱 مستوى أول", "🌿 مستوى ثاني", "☘️ مستوى ثالث", "🌳 مستوى رابع"]
-            for l in levels: 
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 0)', (l,))
-            conn.commit()
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cursor:
+            cursor.execute('''CREATE TABLE IF NOT EXISTS items 
+                              (id SERIAL PRIMARY KEY, name TEXT, type TEXT, file_id TEXT, parent_id INTEGER)''')
+            cursor.execute('CREATE TABLE IF NOT EXISTS users (chat_id BIGINT PRIMARY KEY)')
             
-            for parent_level_id in [1, 2, 3, 4]:
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم أول\', \'مجلد\', %s)', (parent_level_id,))
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم ثاني\', \'مجلد\', %s)', (parent_level_id,))
-            conn.commit()
-            
-            subjects = [
-                "📖 الثقافة الإسلامية", 
-                "🌙 لغة عربية 2", 
-                "🇬🇧 لغة إنجليزية 2", 
-                "📈 تفاضل وتكامل 2", 
-                "📊 مقدمة في علوم البيانات", 
-                "💻 برمجة حاسوب", 
-                "🗂️ رياضيات متقطعة"
-            ]
-            for s in subjects: 
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 6)', (s,))
-            conn.commit()
-            
-            for i in [13, 14, 15]:
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📂 محاضرات وملخصات\', \'مجلد\', %s)', (i,))
-                cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📝 نماذج اختبارات\', \'مجلد\', %s)', (i,))
+            cursor.execute('SELECT COUNT(*) FROM items')
+            if cursor.fetchone()[0] == 0:
+                levels = ["🌱 مستوى أول", "🌿 مستوى ثاني", "☘️ مستوى ثالث", "🌳 مستوى رابع"]
+                for l in levels: 
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 0)', (l,))
                 
-            calc_sub = ["📂 محاضرات نظري", "📐 محاضرات تمارين", "📝 نماذج اختبارات نظري", "✍️ نماذج تمارين", "📚 مراجع خارجية"]
-            for c in calc_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 16)', (c,))
-            
-            data_sub = ["👨‍🏫 محاضرات المهندس", "📜 ملخص محاضرات", "⚙️ محاضرات العملي", "📝 نماذج اختبارات نظري"]
-            for d in data_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 17)', (d,))
-            
-            prog_sub = ["📂 محاضرات نظري", "🖥️ محاضرات العملي", "📝 نماذج اختبارات", "🚀 التمارين والمشاريع العملية"]
-            for p in prog_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 18)', (p,))
-            
-            math_sub = ["📂 محاضرات نظري", "✏️ محاضرات تمارين", "📝 نماذج اختبارات", "📚 مراجع خارجية"]
-            for m in math_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 19)', (m,))
+                for parent_level_id in [1, 2, 3, 4]:
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم أول\', \'مجلد\', %s)', (parent_level_id,))
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم ثاني\', \'مجلد\', %s)', (parent_level_id,))
+                
+                subjects = [
+                    "📖 الثقافة الإسلامية", "🌙 لغة عربية 2", "🇬🇧 لغة إنجليزية 2", 
+                    "📈 تفاضل وتكامل 2", "📊 مقدمة في علوم البيانات", "💻 برمجة حاسوب", "🗂️ رياضيات متقطعة"
+                ]
+                for s in subjects: 
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 6)', (s,))
+                
+                for i in [13, 14, 15]:
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📂 محاضرات وملخصات\', \'مجلد\', %s)', (i,))
+                    cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📝 نماذج اختبارات\', \'مجلد\', %s)', (i,))
+                    
+                calc_sub = ["📂 محاضرات نظري", "📐 محاضرات تمارين", "📝 نماذج اختبارات نظري", "✍️ نماذج تمارين", "📚 مراجع خارجية"]
+                for c in calc_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 16)', (c,))
+                
+                data_sub = ["👨‍🏫 محاضرات المهندس", "📜 ملخص محاضرات", "⚙️ محاضرات العملي", "📝 نماذج اختبارات نظري"]
+                for d in data_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 17)', (d,))
+                
+                prog_sub = ["📂 محاضرات نظري", "🖥️ محاضرات العملي", "📝 نماذج اختبارات", "🚀 التمارين والمشاريع العملية"]
+                for p in prog_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 18)', (p,))
+                
+                math_sub = ["📂 محاضرات نظري", "✏️ محاضرات تمارين", "📝 نماذج اختبارات", "📚 مراجع خارجية"]
+                for m in math_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 19)', (m,))
             conn.commit()
-        cursor.close()
-        release_db_connection(conn)
     except Exception as e:
-        print(f"Init DB adjustment: {e}")
+        print(f"Init DB error (Safe Ignore): {e}")
+    finally:
+        if conn: conn.close()
 
-try:
-    init_db()
-except:
-    pass
+# تنفيذ التهيئة بأمان
+init_db()
 
+# قواميس التتبع (مع آليات التعافي الذاتي)
 testing_mode, user_history, upload_mode = {}, {}, {}
 
 def get_current_parent(chat_id):
@@ -109,15 +101,16 @@ def get_current_parent(chat_id):
 def show_menu(chat_id):
     parent_id = get_current_parent(chat_id)
     items = []
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=DictCursor)
-        cursor.execute('SELECT name, type, file_id FROM items WHERE parent_id = %s', (parent_id,))
-        items = cursor.fetchall()
-        cursor.close()
-        release_db_connection(conn)
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute('SELECT id, name, type, file_id FROM items WHERE parent_id = %s ORDER BY id ASC', (parent_id,))
+            items = cursor.fetchall()
     except Exception as e:
         print(f"Menu read error: {e}")
+    finally:
+        release_db_connection(conn)
 
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     files_count = 0
@@ -138,28 +131,34 @@ def show_menu(chat_id):
     if parent_id == 0:
         msg_text = (
             "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n"
-            "نضع بين يديك هذا البوت ليكون دليلك الشامل ومكتبتك المتكاملة؛ للوصول السهل والسريع لكافة المحاضرات والملخصات.\n\n"
             "👇 فضلاً، اختر مستواك الدراسي من القائمة أدناه للبدء:"
         )
     else:
         msg_text = "اختر من القائمة أدناه:"
         if files_count > 0: msg_text += "\n(🗂️ يوجد ملفات جاهزة للتحميل)"
-    bot.send_message(chat_id, msg_text, reply_markup=markup)
+    
+    try:
+        bot.send_message(chat_id, msg_text, reply_markup=markup)
+    except Exception as e:
+        print(f"Send message error (User blocked bot?): {e}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
     chat_id = message.chat.id
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('INSERT INTO users (chat_id) VALUES (%s) ON CONFLICT (chat_id) DO NOTHING', (chat_id,))
-        conn.commit()
-        cursor.close()
+        with conn.cursor() as cursor:
+            cursor.execute('INSERT INTO users (chat_id) VALUES (%s) ON CONFLICT (chat_id) DO NOTHING', (chat_id,))
+            conn.commit()
+    except Exception as e:
+        print(f"User insert error: {e}")
+    finally:
         release_db_connection(conn)
-    except:
-        pass
+        
     user_history[chat_id] = [0]
-    testing_mode[chat_id] = upload_mode[chat_id] = False
+    testing_mode[chat_id] = False
+    upload_mode[chat_id] = False
     show_menu(chat_id)
 
 @bot.message_handler(func=lambda m: m.text == "⚙️ إدارة هذه القائمة" and m.chat.id in ADMIN_IDS and not testing_mode.get(m.chat.id))
@@ -184,44 +183,52 @@ def admin_action(message):
 
 def receive_folder(message):
     parent_id = get_current_parent(message.chat.id)
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', %s)', (message.text, parent_id))
-        conn.commit()
-        cursor.close()
+        with conn.cursor() as cursor:
+            cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', %s)', (message.text, parent_id))
+            conn.commit()
+        bot.send_message(message.chat.id, f"✅ تم إضافة المجلد '{message.text}' بنجاح!")
+    except Exception as e:
+        print(f"Folder insert error: {e}")
+    finally:
         release_db_connection(conn)
-    except:
-        pass
     show_menu(message.chat.id)
 
 @bot.message_handler(content_types=['document'], func=lambda m: m.chat.id in ADMIN_IDS and upload_mode.get(m.chat.id))
 def receive_multiple_files(message):
     parent_id = get_current_parent(message.chat.id)
     file_name = message.caption if message.caption else message.document.file_name
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('INSERT INTO items (name, type, file_id, parent_id) VALUES (%s, \'ملف\', %s, %s)', (file_name, message.document.file_id, parent_id))
-        conn.commit()
-        cursor.close()
-        release_db_connection(conn)
+        with conn.cursor() as cursor:
+            cursor.execute('INSERT INTO items (name, type, file_id, parent_id) VALUES (%s, \'ملف\', %s, %s)', (file_name, message.document.file_id, parent_id))
+            conn.commit()
         bot.send_message(message.chat.id, f"✅ تم حفظ '{file_name}'!")
-    except:
-        pass
+    except Exception as e:
+        print(f"File insert error: {e}")
+    finally:
+        release_db_connection(conn)
 
 @bot.message_handler(func=lambda message: True)
 def handle_nav(message):
     chat_id, text = message.chat.id, message.text
+    
+    # ضمان وجود مسار للمستخدم في الذاكرة (التعافي الذاتي)
+    if chat_id not in user_history:
+        user_history[chat_id] = [0]
+
     if text == "🛑 إنهاء إضافة الملفات" and chat_id in ADMIN_IDS:
         upload_mode[chat_id] = False
         show_menu(chat_id)
         return
-    if text == "🛑 إنهاء التجربة والعودة للإشراف":
+    if text == "🛑 إنهاء التجربة والعودة للإشراف" and chat_id in ADMIN_IDS:
         testing_mode[chat_id] = False
         show_menu(chat_id)
         return
-    if text == "👤 تجربة كمستخدم":
+    if text == "👤 تجربة كمستخدم" and chat_id in ADMIN_IDS:
         testing_mode[chat_id] = True
         show_menu(chat_id)
         return
@@ -230,41 +237,54 @@ def handle_nav(message):
         show_menu(chat_id)
         return
     if text == "🔙 الرجوع للقائمة السابقة":
-        if len(user_history.get(chat_id, [])) > 1: user_history[chat_id].pop()
+        if len(user_history[chat_id]) > 1:
+            user_history[chat_id].pop()
         show_menu(chat_id)
         return
     if text == "👨‍💻 تواصل مع المطور":
-        bot.send_message(chat_id, "👥 طاقم الإشراف للدعم الفني للدفعة:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)")
+        bot.send_message(chat_id, "👥 طاقم الإشراف والدعم الفني للدفعة:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)")
         return
 
     parent_id = get_current_parent(chat_id)
     item = None
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=DictCursor)
-        cursor.execute('SELECT id, type, file_id FROM items WHERE name = %s AND parent_id = %s', (text, parent_id))
-        item = cursor.fetchone()
-        cursor.close()
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute('SELECT id, type, file_id FROM items WHERE name = %s AND parent_id = %s LIMIT 1', (text, parent_id))
+            item = cursor.fetchone()
+    except Exception as e:
+        print(f"Navigation query error: {e}")
+    finally:
         release_db_connection(conn)
-    except:
-        pass
     
     if item:
         if item['type'] == "مجلد":
             user_history[chat_id].append(item['id'])
             show_menu(chat_id)
         else:
-            bot.send_document(chat_id, item['file_id'])
+            try:
+                bot.send_document(chat_id, item['file_id'])
+            except:
+                bot.send_message(chat_id, "❌ حدث خطأ أثناء تحميل الملف، قد يكون غير متاح.")
 
+# حماية الـ Webhook من أخطاء الـ Timeouts والانقطاعات
 @app.route('/' + API_TOKEN, methods=['POST'])
 def getMessage():
-    bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
+    try:
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+    except Exception as e:
+        print(f"Webhook processing error: {e}")
+    
+    # الإرجاع الدائم لـ 200 لمنع الانهيار
     return "!", 200
 
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    return "Bot is running perfectly via Webhook & Supabase IPv4 Pooler!", 200
+    return "Bot is running perfectly and securely via Webhook & Supabase IPv4 Pooler! 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
