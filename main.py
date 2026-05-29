@@ -7,21 +7,22 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import sys
 import io
 
+# ضمان قراءة النصوص والإيموجيات العربية بشكل صحيح داخل السيرفر
 if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
 ADMIN_IDS = [6842543527, 5585934059, 1084564343] 
 
-# تعديل الرابط لاستخدام الـ Connection Pooler عبر المنفذ المستقر 6543 وتفعيل الـ IPv4 إجبارياً
-DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@aws-0-me-central-1.pooler.supabase.com:6543/postgres?sslmode=require&supavisor_session=true"
+# الرابط المعدل والمصحح 100% للاتصال الآمن المستقر عبر IPv4 وبدون المعامل المسبب للخطأ
+DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@aws-0-me-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
 try:
-    # مجمع اتصالات مضبوط ليتوافق مع الـ Pooler الجديد
-    db_pool = ThreadedConnectionPool(1, 5, DATABASE_URL)
+    # مجمع اتصالات آمن متوافق مع الـ Pooler الجديد لمنع أي بطء
+    db_pool = ThreadedConnectionPool(1, 10, DATABASE_URL)
 except Exception as e:
     print(f"Pool error: {e}")
     db_pool = None
@@ -37,6 +38,7 @@ def release_db_connection(conn):
     else:
         conn.close()
 
+# نظام إنشاء الجداول والمجلدات التلقائي داخل قاعدة البيانات
 def init_db():
     try:
         conn = get_db_connection()
@@ -58,7 +60,15 @@ def init_db():
                 cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (\'📅 ترم ثاني\', \'مجلد\', %s)', (parent_level_id,))
             conn.commit()
             
-            subjects = ["📖 الثقافة الإسلامية", "🌙 لغة عربية 2", "🇬🇧 لغة إنجليزية 2", "📈 تفاضل وتكامل 2", "📊 مقدمة في علوم البيانات", "💻 برمجة حاسوب", "🗂️ رياضيات متقطعة"]
+            subjects = [
+                "📖 الثقافة الإسلامية", 
+                "🌙 لغة عربية 2", 
+                "🇬🇧 لغة إنجليزية 2", 
+                "📈 تفاضل وتكامل 2", 
+                "📊 مقدمة في علوم البيانات", 
+                "💻 برمجة حاسوب", 
+                "🗂️ رياضيات متقطعة"
+            ]
             for s in subjects: 
                 cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 6)', (s,))
             conn.commit()
@@ -126,7 +136,11 @@ def show_menu(chat_id):
         markup.add("👤 تجربة كمستخدم", "⚙️ إدارة هذه القائمة")
             
     if parent_id == 0:
-        msg_text = "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n👇 اختر مستواك الدراسي للبدء:"
+        msg_text = (
+            "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n"
+            "نضع بين يديك هذا البوت ليكون دليلك الشامل ومكتبتك المتكاملة؛ للوصول السهل والسريع لكافة المحاضرات والملخصات.\n\n"
+            "👇 فضلاً، اختر مستواك الدراسي من القائمة أدناه للبدء:"
+        )
     else:
         msg_text = "اختر من القائمة أدناه:"
         if files_count > 0: msg_text += "\n(🗂️ يوجد ملفات جاهزة للتحميل)"
@@ -220,7 +234,7 @@ def handle_nav(message):
         show_menu(chat_id)
         return
     if text == "👨‍💻 تواصل مع المطور":
-        bot.send_message(chat_id, "👥 طاقم الإشراف:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)")
+        bot.send_message(chat_id, "👥 طاقم الإشراف للدعم الفني للدفعة:\n🔹 المندوب: الواثق بالله عساج (@AlwatheqAssag)\n🔹 جلال المهدي (@jalal_almahdy)\n🔹 براء حسن (@br44ai)")
         return
 
     parent_id = get_current_parent(chat_id)
