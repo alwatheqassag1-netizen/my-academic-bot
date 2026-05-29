@@ -7,22 +7,20 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import sys
 import io
 
-# ضمان القراءة الصحيحة للنصوص العربية
 if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
 ADMIN_IDS = [6842543527, 5585934059, 1084564343] 
 
-# رابط الـ Pooler الآمن والمستقر (IPv4)
-DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@aws-0-me-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
+# استخدام الـ IP المباشر لخوادم Supabase لتخطي مشكلة الـ DNS نهائياً
+DATABASE_URL = "postgresql://postgres.jknojabyblhpoudaowzr:alwatheq733@15.185.217.185:5432/postgres?sslmode=require"
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
-# مجمع اتصالات متطور ومحصن
 try:
-    db_pool = ThreadedConnectionPool(1, 15, DATABASE_URL)
+    db_pool = ThreadedConnectionPool(1, 10, DATABASE_URL)
 except Exception as e:
     print(f"Pool init error: {e}")
     db_pool = None
@@ -39,7 +37,6 @@ def release_db_connection(conn):
         else:
             conn.close()
 
-# تهيئة الجداول (مستقلة تماماً لمنع الانهيار الأولي)
 def init_db():
     conn = None
     try:
@@ -83,14 +80,12 @@ def init_db():
                 for m in math_sub: cursor.execute('INSERT INTO items (name, type, parent_id) VALUES (%s, \'مجلد\', 19)', (m,))
             conn.commit()
     except Exception as e:
-        print(f"Init DB error (Safe Ignore): {e}")
+        print(f"Init DB error: {e}")
     finally:
         if conn: conn.close()
 
-# تنفيذ التهيئة بأمان
 init_db()
 
-# قواميس التتبع (مع آليات التعافي الذاتي)
 testing_mode, user_history, upload_mode = {}, {}, {}
 
 def get_current_parent(chat_id):
@@ -140,7 +135,7 @@ def show_menu(chat_id):
     try:
         bot.send_message(chat_id, msg_text, reply_markup=markup)
     except Exception as e:
-        print(f"Send message error (User blocked bot?): {e}")
+        print(f"Send message error: {e}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -157,8 +152,7 @@ def start(message):
         release_db_connection(conn)
         
     user_history[chat_id] = [0]
-    testing_mode[chat_id] = False
-    upload_mode[chat_id] = False
+    testing_mode[chat_id] = upload_mode[chat_id] = False
     show_menu(chat_id)
 
 @bot.message_handler(func=lambda m: m.text == "⚙️ إدارة هذه القائمة" and m.chat.id in ADMIN_IDS and not testing_mode.get(m.chat.id))
@@ -216,7 +210,6 @@ def receive_multiple_files(message):
 def handle_nav(message):
     chat_id, text = message.chat.id, message.text
     
-    # ضمان وجود مسار للمستخدم في الذاكرة (التعافي الذاتي)
     if chat_id not in user_history:
         user_history[chat_id] = [0]
 
@@ -266,9 +259,8 @@ def handle_nav(message):
             try:
                 bot.send_document(chat_id, item['file_id'])
             except:
-                bot.send_message(chat_id, "❌ حدث خطأ أثناء تحميل الملف، قد يكون غير متاح.")
+                bot.send_message(chat_id, "❌ حدث خطأ أثناء تحميل الملف.")
 
-# حماية الـ Webhook من أخطاء الـ Timeouts والانقطاعات
 @app.route('/' + API_TOKEN, methods=['POST'])
 def getMessage():
     try:
@@ -277,14 +269,12 @@ def getMessage():
         bot.process_new_updates([update])
     except Exception as e:
         print(f"Webhook processing error: {e}")
-    
-    # الإرجاع الدائم لـ 200 لمنع الانهيار
     return "!", 200
 
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    return "Bot is running perfectly and securely via Webhook & Supabase IPv4 Pooler! 🚀", 200
+    return "Bot is running perfectly via Direct IP!", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
