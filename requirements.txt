@@ -1,4 +1,4 @@
 pyTelegramBotAPI
-Flask
 pymongo
-dnspython
+Flask
+google-generativeai
