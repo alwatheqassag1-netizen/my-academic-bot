@@ -21,19 +21,22 @@ try:
     folders_col = db['dynamic_folders']
     users_col = db['bot_users']
     admins_col = db['admins_list']
+    settings_col = db['bot_settings']
     print("Connected to MongoDB Atlas successfully! 🎉")
 except Exception as e:
     print(f"MongoDB connection error: {e}")
 
-# تهيئة المشرفين الأساسيين في قاعدة البيانات عند أول تشغيل تلقائي لقاعدة البيانات
 if admins_col.count_documents({}) == 0:
     initial_admins = [{"id": SUPER_ADMIN_ID}, {"id": 5585934059}, {"id": 1084564343}, {"id": 8545242147}]
     admins_col.insert_many(initial_admins)
 
+if settings_col.count_documents({}) == 0:
+    settings_col.insert_one({"status": "active"})
+
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
-# 📌 الهيكل الأكاديمي الأساسي الثابت للمجلدات
+# 📌 الهيكل الأكاديمي الأساسي (احذر تغيير أسماء هذه المجلدات مستقبلاً لكي لا تختفي ملفاتها)
 ACADEMIC_STRUCTURE = {
     "🌱 مستوى أول": {
         "📅 ترم أول": {},
@@ -57,10 +60,14 @@ upload_mode = {}
 add_folder_mode = {}
 broadcast_mode = {}
 testing_mode = {}
-admin_action_mode = {}  # وضع إدارة المشرفين (add أو remove)
+admin_action_mode = {}
 
 def is_admin(chat_id):
     return admins_col.find_one({"id": chat_id}) is not None
+
+def is_bot_active():
+    setting = settings_col.find_one()
+    return setting.get("status") == "active" if setting else True
 
 def get_menu_by_path(path):
     menu = ACADEMIC_STRUCTURE
@@ -80,6 +87,10 @@ def reset_modes(chat_id):
     broadcast_mode[chat_id] = False
     admin_action_mode[chat_id] = None
 
+@bot.message_handler(func=lambda m: not is_bot_active() and m.chat.id != SUPER_ADMIN_ID)
+def system_offline(message):
+    bot.send_message(message.chat.id, "⛔ المنصة الأكاديمية مغلقة حالياً للصيانة بقرار من الإدارة العليا. يرجى المحاولة لاحقاً.")
+
 def show_menu(chat_id):
     path = user_path.get(chat_id, [])
     current_menu = get_menu_by_path(path)
@@ -92,10 +103,9 @@ def show_menu(chat_id):
             markup.add(KeyboardButton(key))
         markup.add("👨‍💻 تواصل مع المطور")
         
-        # خيارات التحكم الإداري الحصري للواثق في الواجهة الرئيسية
         if chat_id == SUPER_ADMIN_ID and not testing_mode.get(chat_id):
             markup.add("📢 إرسال رسالة جماعية", "👥 إحصائيات المشتركين")
-            markup.add("🛠️ إدارة المشرفين")
+            markup.add("🛠️ إدارة المشرفين", "⚙️ زر الأمان (إغلاق ومسح)")
             
         msg_text = "مرحباً بك في المنصة الأكاديمية لقسم الذكاء الاصطناعي وعلوم البيانات (الدفعة الثانية) 🎓\n\n👇 فضلاً، اختر من القائمة أدناه للبدء:"
         bot.send_message(chat_id, msg_text, reply_markup=markup)
@@ -105,20 +115,18 @@ def show_menu(chat_id):
         for key in current_menu.keys():
             markup.add(KeyboardButton(key))
             
-    # استدعاء وعرض المجلدات الديناميكية من قاعدة البيانات السحابية لقسم الحالي
     dynamic_folders = list(folders_col.find({"parent_path": path_str}))
     for df in dynamic_folders:
         markup.add(KeyboardButton(f"📁 {df['folder_name']}"))
 
-    # استدعاء وعرض الملفات والنصوص المرفوعة من قاعدة البيانات السحابية للقسم الحالي
+    # استخدام الإيموجي 📌 للنصوص لعدم التضارب مع مجلد النماذج 📝
     db_files = list(files_col.find({"menu_path": path_str}))
     for f in db_files:
-        icon = "📝" if f.get("type") == "text" else "🖼️" if f.get("type") == "photo" else "📄"
+        icon = "📌" if f.get("type") == "text" else "🖼️" if f.get("type") == "photo" else "📄"
         markup.add(KeyboardButton(f"{icon} {f['name']}"))
 
     markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
     
-    # خيارات لوحة التحكم للمشرفين داخل الأقسام والمجلدات الفرعية
     if testing_mode.get(chat_id):
         markup.add("🛑 إنهاء التجربة والعودة للإشراف")
     elif is_admin(chat_id):
@@ -137,7 +145,6 @@ def start(message):
         "username": f"@{message.from_user.username}" if message.from_user.username else "لا يوجد معرف"
     }
     users_col.update_one({"chat_id": chat_id}, {"$set": user_data}, upsert=True)
-    
     user_path[chat_id] = []
     reset_modes(chat_id)
     testing_mode[chat_id] = False
@@ -153,13 +160,7 @@ def handle_general_buttons(message):
         bot.send_message(chat_id, "تم إلغاء الإجراء الحالي ⚙️")
         show_menu(chat_id)
     elif text == "👨‍💻 تواصل مع المطور":
-        msg_dev = (
-            "👋 مرحباً بك في قسم الدعم الفني والتطوير الأكاديمي!\n\n"
-            "💬 للتواصل مع طاقم الإشراف مباشرة عبر الحسابات الرسمية أدناه:\n\n"
-            "👔 المندوب العام للدفعة:\n🔹 الواثق بالله عساج ⇦ (@AlwatheqAssag)\n\n"
-            "🛠️ فريق الدعم الفني والبرمجي:\n🔹 جلال المهدي ⇦ (@jalal_almahdy)\n🔹 براء حسن ⇦ (@br44ai)\n🔹 ليث مرزوق ⇦ (@laithmarzoq1)\n"
-        )
-        bot.send_message(chat_id, msg_dev)
+        bot.send_message(chat_id, "👋 مرحباً بك في قسم الدعم الفني...\n🔹 الواثق بالله عساج ⇦ (@AlwatheqAssag)\n🔹 جلال المهدي ⇦ (@jalal_almahdy)\n🔹 براء حسن ⇦ (@br44ai)\n🔹 ليث مرزوق ⇦ (@laithmarzoq1)")
     elif text == "🛑 إنهاء التجربة والعودة للإشراف":
         testing_mode[chat_id] = False
         show_menu(chat_id)
@@ -173,7 +174,30 @@ def handle_general_buttons(message):
         reset_modes(chat_id)
         show_menu(chat_id)
 
-# 👑 صلاحيات المدير الأعلى الحصرية للواثق (Super Admin)
+@bot.message_handler(func=lambda m: m.chat.id == SUPER_ADMIN_ID and m.text == "⚙️ زر الأمان (إغلاق ومسح)")
+def security_panel(message):
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    status_btn = "▶️ تشغيل البوت" if not is_bot_active() else "⏸️ إيقاف البوت"
+    markup.add(status_btn, "💣 مسح جميع البيانات نهائياً")
+    markup.add("🔝 القائمة الرئيسية")
+    bot.send_message(message.chat.id, "🛡️ أهلاً بك في غرفة الأمان العُليا:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.chat.id == SUPER_ADMIN_ID and m.text in ["▶️ تشغيل البوت", "⏸️ إيقاف البوت", "💣 مسح جميع البيانات نهائياً"])
+def execute_security_actions(message):
+    chat_id = message.chat.id
+    if message.text == "⏸️ إيقاف البوت":
+        settings_col.update_one({}, {"$set": {"status": "inactive"}})
+        bot.send_message(chat_id, "⛔ تم إغلاق النظام وحظر الجميع.")
+        show_menu(chat_id)
+    elif message.text == "▶️ تشغيل البوت":
+        settings_col.update_one({}, {"$set": {"status": "active"}})
+        bot.send_message(chat_id, "✅ تم تفعيل النظام وعاد للعمل.")
+        show_menu(chat_id)
+    elif message.text == "💣 مسح جميع البيانات نهائياً":
+        files_col.delete_many({})
+        folders_col.delete_many({})
+        bot.send_message(chat_id, "💥 تم تنفيذ الأمر! جميع الملفات مسحت نهائياً.")
+
 @bot.message_handler(func=lambda m: m.chat.id == SUPER_ADMIN_ID and m.text in ["📢 إرسال رسالة جماعية", "👥 إحصائيات المشتركين", "🛠️ إدارة المشرفين", "➕ إضافة مشرف", "➖ إزالة مشرف"])
 def super_admin_controls(message):
     chat_id = message.chat.id
@@ -181,144 +205,113 @@ def super_admin_controls(message):
 
     if text == "👥 إحصائيات المشتركين":
         users = list(users_col.find())
-        msg = f"📊 إحصائيات البوت الحصرية:\n👥 إجمالي عدد الطلاب المشتركين: {len(users)}\n\n"
-        for u in users:
-            msg += f"👤 {u.get('first_name', 'مجهول')} | {u.get('username', 'لا يوجد')} | ID: {u.get('chat_id')}\n"
+        msg = f"📊 إحصائيات البوت:\n👥 الإجمالي: {len(users)}\n\n"
+        for u in users: msg += f"👤 {u.get('first_name')} | {u.get('username')} | ID: {u.get('chat_id')}\n"
         if len(msg) > 4000:
             with io.StringIO(msg) as f:
                 f.name = "Students_Data.txt"
-                bot.send_document(chat_id, f, caption="البيانات كاملة في هذا الملف لكثرة العدد.")
-        else:
-            bot.send_message(chat_id, msg)
+                bot.send_document(chat_id, f)
+        else: bot.send_message(chat_id, msg)
 
     elif text == "📢 إرسال رسالة جماعية":
         reset_modes(chat_id)
         broadcast_mode[chat_id] = True
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")
-        bot.send_message(chat_id, "📢 وضع الإرسال الجماعي مُفعّل!\nأرسل الآن الرسالة أو الملف وسيتم توزيعه على جميع الطلاب المشتركين فوراً 🚀", reply_markup=markup)
+        bot.send_message(chat_id, "📢 وضع الإرسال الجماعي مُفعّل! أرسل رسالتك:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
 
     elif text == "🛠️ إدارة المشرفين":
         reset_modes(chat_id)
         markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add("➕ إضافة مشرف", "➖ إزالة مشرف", "🔝 القائمة الرئيسية")
-        
-        current_admins = list(admins_col.find())
-        msg = "🛠️ **قائمة المشرفين الحاليين في قاعدة البيانات:**\n"
-        for a in current_admins:
-            msg += f"🔹 ID: {a['id']}\n"
-        msg += "\nاختر الإجراء المطلوب من القائمة أدناه:"
+        msg = "🛠️ **المشرفين الحاليين:**\n"
+        for a in list(admins_col.find()): msg += f"🔹 ID: {a['id']}\n"
         bot.send_message(chat_id, msg, reply_markup=markup, parse_mode="Markdown")
 
     elif text == "➕ إضافة مشرف":
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "add"
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")
-        bot.send_message(chat_id, "أرسل الآن الآيدي (ID) الخاص بالمشرف الجديد ليتم إضافته للنظام:", reply_markup=markup)
+        bot.send_message(chat_id, "أرسل الآيدي (ID) الخاص بالمشرف الجديد:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
 
     elif text == "➖ إزالة مشرف":
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "remove"
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")
-        bot.send_message(chat_id, "أرسل الآيدي (ID) الخاص بالمشرف الذي تريد إزالته وسحب صلاحياته:", reply_markup=markup)
+        bot.send_message(chat_id, "أرسل الآيدي (ID) الخاص بالمشرف لإزالته:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
 
-# ⚙️ خصائص لوحة التحكم العامة للمشرفين المعتمدين في قاعدة البيانات
 @bot.message_handler(func=lambda m: is_admin(m.chat.id) and m.text in ["➕ إضافة ملف أو نص", "📂 إضافة مجلد جديد", "🗑️ تفريغ هذا القسم", "👤 تجربة كمستخدم"] and not testing_mode.get(m.chat.id))
 def admin_controls(message):
     chat_id = message.chat.id
-    text = message.text
-    
-    if text == "➕ إضافة ملف أو نص":
+    if message.text == "➕ إضافة ملف أو نص":
         reset_modes(chat_id)
         upload_mode[chat_id] = True
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")
-        bot.send_message(chat_id, "📥 وضع الإضافة مُفعّل داخل هذا المجلد!\nأرسل الآن (ملف، صورة، أو رسالة نصية وشرح) ليتم حفظها كزر تصفح مباشر.", reply_markup=markup)
-    
-    elif text == "📂 إضافة مجلد جديد":
+        bot.send_message(chat_id, "📥 وضع الإضافة مُفعّل! أرسل الملف أو النص:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+    elif message.text == "📂 إضافة مجلد جديد":
         reset_modes(chat_id)
         add_folder_mode[chat_id] = True
-        markup = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")
-        bot.send_message(chat_id, "📂 أرسل الآن اسم المجلد الجديد ليتم إنشاؤه داخل هذا القسم بالتحديد:", reply_markup=markup)
-
-    elif text == "🗑️ تفريغ هذا القسم":
-        path_str = get_path_string(chat_id)
-        files_col.delete_many({"menu_path": path_str})
-        folders_col.delete_many({"parent_path": path_str})
-        bot.send_message(chat_id, "🗑️ تم مسح كافة الملفات والمجلدات من قاعدة البيانات لهذا القسم بنجاح!")
+        bot.send_message(chat_id, "📂 أرسل اسم المجلد الجديد:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+    elif message.text == "🗑️ تفريغ هذا القسم":
+        files_col.delete_many({"menu_path": get_path_string(chat_id)})
+        folders_col.delete_many({"parent_path": get_path_string(chat_id)})
+        bot.send_message(chat_id, "🗑️ تم المسح بنجاح!")
         show_menu(chat_id)
-
-    elif text == "👤 تجربة كمستخدم":
+    elif message.text == "👤 تجربة كمستخدم":
         testing_mode[chat_id] = True
         show_menu(chat_id)
 
-# 🚀 معالجة البيانات المدخلة واستقبال المجلدات، النصوص، البيانات، والإرسال الجماعي
 @bot.message_handler(content_types=['text', 'document', 'photo', 'video', 'audio'], func=lambda m: is_admin(m.chat.id) and (upload_mode.get(m.chat.id) or add_folder_mode.get(m.chat.id) or broadcast_mode.get(m.chat.id) or admin_action_mode.get(m.chat.id)))
 def handle_inputs(message):
     chat_id = message.chat.id
     path_str = get_path_string(chat_id)
 
-    # معالجة إضافة/إزالة المشرفين الفورية من قاعدة البيانات
     if admin_action_mode.get(chat_id) and chat_id == SUPER_ADMIN_ID:
         try:
             target_id = int(message.text.strip())
             if admin_action_mode[chat_id] == "add":
                 if not is_admin(target_id):
                     admins_col.insert_one({"id": target_id})
-                    bot.send_message(chat_id, f"✅ تم إضافة المشرف ({target_id}) بنجاح وقبول صلاحياته!")
-                else:
-                    bot.send_message(chat_id, "⚠️ هذا المشرف مسجل في قاعدة البيانات مسبقاً.")
+                    bot.send_message(chat_id, f"✅ تمت الإضافة: {target_id}")
             elif admin_action_mode[chat_id] == "remove":
-                if target_id == SUPER_ADMIN_ID:
-                    bot.send_message(chat_id, "❌ لا يمكنك إزالة حسابك (المدير الأعلى) لسلامة النظام!")
-                else:
+                if target_id != SUPER_ADMIN_ID:
                     admins_col.delete_one({"id": target_id})
-                    bot.send_message(chat_id, f"✅ تم إزالة المشرف ({target_id}) وسحب الصلاحيات الإدارية منه.")
-            
+                    bot.send_message(chat_id, f"✅ تمت الإزالة: {target_id}")
             reset_modes(chat_id)
             user_path[chat_id] = []
             show_menu(chat_id)
         except ValueError:
-            bot.send_message(chat_id, "❌ الرجاء إرسال الآيدي كأرقام صحيحة فقط (مثال: 123456789)")
+            bot.send_message(chat_id, "❌ خطأ: أرسل الآيدي كأرقام فقط")
         return
 
-    # معالجة الإرسال الجماعي العاجل (للواثق فقط)
     if broadcast_mode.get(chat_id) and chat_id == SUPER_ADMIN_ID:
         broadcast_mode[chat_id] = False
-        bot.send_message(chat_id, "⏳ جاري التوزيع البث الجماعي للطلاب، الرجاء الانتظار...")
         users = list(users_col.find())
         success = 0
         for u in users:
             try:
                 bot.copy_message(u['chat_id'], chat_id, message.message_id)
                 success += 1
-            except:
-                pass
-        bot.send_message(chat_id, f"✅ تمت العملية بنجاح! تم تعميم الرسالة إلى {success} طالب مشترك.")
+            except: pass
+        bot.send_message(chat_id, f"✅ تم الإرسال إلى {success} طالب.")
         user_path[chat_id] = []
         show_menu(chat_id)
         return
 
-    # معالجة إنشاء المجلدات الديناميكية وحفظها سحابياً
     if add_folder_mode.get(chat_id) and message.content_type == 'text':
-        folder_name = message.text.strip()
-        folders_col.insert_one({"parent_path": path_str, "folder_name": folder_name})
+        folders_col.insert_one({"parent_path": path_str, "folder_name": message.text.strip()})
         add_folder_mode[chat_id] = False
-        bot.send_message(chat_id, f"✅ تم إنشاء المجلد السحابي الجديد: {folder_name}")
+        bot.send_message(chat_id, "✅ تم الإنشاء.")
         show_menu(chat_id)
         return
 
-    # معالجة الرفع المتنوع للملفات أو النصوص أو الصور (تعديل دقة أسماء الحفظ)
     if upload_mode.get(chat_id):
         if message.content_type == 'text':
             title = message.text[:25] + "..." if len(message.text) > 25 else message.text
             files_col.insert_one({"menu_path": path_str, "name": title, "type": "text", "content": message.text})
-            bot.send_message(chat_id, f"✅ تم حفظ النص بنجاح باسم: {title}")
+            bot.send_message(chat_id, f"✅ تم الحفظ: {title}")
         elif message.content_type == 'document':
             name = message.caption if message.caption else message.document.file_name
             files_col.insert_one({"menu_path": path_str, "name": name, "type": "document", "file_id": message.document.file_id, "caption": message.caption})
-            bot.send_message(chat_id, f"✅ تم حفظ المستند بنجاح: {name}")
+            bot.send_message(chat_id, f"✅ تم الحفظ: {name}")
         elif message.content_type == 'photo':
             name = message.caption if message.caption else f"صورة توضيحية"
             files_col.insert_one({"menu_path": path_str, "name": name, "type": "photo", "file_id": message.photo[-1].file_id, "caption": message.caption})
-            bot.send_message(chat_id, f"✅ تم حفظ الصورة بنجاح: {name}")
+            bot.send_message(chat_id, f"✅ تم الحفظ: {name}")
 
 @bot.message_handler(func=lambda message: True)
 def handle_navigation(message):
@@ -329,27 +322,21 @@ def handle_navigation(message):
     if chat_id not in user_path:
         user_path[chat_id] = []
 
-    # 🛠️ معالجة استدعاء الملفات الآمنة دون قص الحروف (حل المشكلة الجذري)
-    if text.startswith("📄 ") or text.startswith("📝 ") or text.startswith("🖼️ "):
-        clean_name = text.replace("📄 ", "").replace("📝 ", "").replace("🖼️ ", "")
+    # تم تغيير 📝 إلى 📌 للنصوص لتجنب التضارب
+    if text.startswith("📄 ") or text.startswith("📌 ") or text.startswith("🖼️ "):
+        clean_name = text.replace("📄 ", "").replace("📌 ", "").replace("🖼️ ", "")
         res = files_col.find_one({"menu_path": path_str, "name": clean_name})
         if res:
-            if res['type'] == 'text':
-                bot.send_message(chat_id, res['content'])
-            elif res['type'] == 'photo':
-                bot.send_photo(chat_id, res['file_id'], caption=res.get('caption'))
-            else:
-                bot.send_document(chat_id, res['file_id'], caption=res.get('caption'))
+            if res['type'] == 'text': bot.send_message(chat_id, res['content'])
+            elif res['type'] == 'photo': bot.send_photo(chat_id, res['file_id'], caption=res.get('caption'))
+            else: bot.send_document(chat_id, res['file_id'], caption=res.get('caption'))
         return
 
-    # معالجة الضغط على المجلدات الديناميكية
     if text.startswith("📁 "):
-        folder_name = text.replace("📁 ", "")
-        user_path[chat_id].append(folder_name)
+        user_path[chat_id].append(text.replace("📁 ", ""))
         show_menu(chat_id)
         return
 
-    # التنقل عبر المجلدات الثابتة للهيكل الأساسي
     current_menu = get_menu_by_path(user_path[chat_id])
     if isinstance(current_menu, dict) and text in current_menu:
         user_path[chat_id].append(text)
@@ -362,7 +349,7 @@ def getMessage():
 
 @app.route("/")
 def webhook():
-    return "Academic Bot: Secure Admin Database Retrieval Active! 🚀", 200
+    return "Academic Bot: Secure Admin Panel Active! 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
