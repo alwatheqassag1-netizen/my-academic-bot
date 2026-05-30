@@ -284,7 +284,6 @@ def start_command(message):
     if len(command_args) > 1:
         param = command_args[1]
         
-        # معالجة الرابط العميق الذي يفتح المجلد مباشرة
         if param.startswith("folder_"):
             try:
                 file_obj_id = param.replace("folder_", "")
@@ -299,7 +298,6 @@ def start_command(message):
             except:
                 pass
         else:
-            # المعالجة القديمة للرابط الذي يرسل الملف فقط (للتوافقية مع القديم)
             try:
                 target_file = files_col.find_one({"_id": ObjectId(param)})
                 if target_file:
@@ -381,7 +379,6 @@ def show_menu(chat_id):
         bot.send_message(chat_id, f"📦 تصفح الأقسام للوصول لموقع النقل الجديد واضغط على زر التأكيد.\n📌 المسار الحالي: {path_str or 'الرئيسية'}", reply_markup=markup)
         return
 
-    # إضافة زر تعيين المشرف في أعلى القائمة أثناء وضع التصفح الحقيقي للتعيين
     if mode == "navigate_to_assign":
         markup.add(KeyboardButton("✅ تعيين مشرف لهذا القسم"), KeyboardButton("🛑 إلغاء الأمر"))
 
@@ -440,16 +437,15 @@ def send_file_to_user(chat_id, res, has_perm):
     try:
         markup = InlineKeyboardMarkup(row_width=2)
         file_id_str = str(res['_id'])
-        # الرابط العميق الجديد الذي يوجه الطالب لفتح المجلد مباشرة داخل البوت
+        share_url = f"https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
         
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تعديل الاسم", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال الملف", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-            markup.add(InlineKeyboardButton("📂 الدخول للمقرر عبر البوت", url=deep_folder_url))
+            markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=f"https://t.me/share/url?url={share_url}"), InlineKeyboardButton("📂 عرض مجلد المقرر", url=deep_folder_url))
         else:
-            # الزر الذي يظهر للطلاب ويظل ملتصقاً بالملف عند تحويله لأي جروب
-            markup.add(InlineKeyboardButton("📂 الدخول للمقرر عبر البوت", url=deep_folder_url))
+            markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=f"https://t.me/share/url?url={share_url}"), InlineKeyboardButton("📂 عرض مجلد المقرر", url=deep_folder_url))
 
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
@@ -480,7 +476,6 @@ def universal_handler(message):
         return
 
     settings = settings_col.find_one({})
-    # استثناء جميع المشرفين من توقف وضع الصيانة
     if settings and settings.get("status") == "inactive" and not is_any_admin(chat_id):
         resume_at = settings.get("resume_at")
         if resume_at and datetime.utcnow() >= resume_at:
@@ -736,6 +731,49 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
+    if is_super_admin(chat_id) or is_global_admin(chat_id):
+        if text == "👤 تجربة كمستخدم":
+            testing_mode[chat_id] = True
+            bot.send_message(chat_id, "👀 تم تفعيل وضع المحاكاة بنجاح! أنت الآن تتصفح وتتعامل مع البوت بهوية طالب عادي بدون صلاحيات إشراف.")
+            user_path[chat_id] = []
+            show_menu(chat_id)
+            return
+
+        if text == "🛑 إنهاء التجربة والعودة للإشراف" and testing_mode.get(chat_id):
+            testing_mode[chat_id] = False
+            bot.send_message(chat_id, "💼 تم إنهاء وضع المحاكاة بنجاح وعادت إليك كامل صلاحياتك الإدارية والتحكم بالمنصة.")
+            user_path[chat_id] = []
+            show_menu(chat_id)
+            return
+
+        if text == "➕ إضافة مشرف مسار مخصص":
+            reset_modes(chat_id)
+            admin_action_mode[chat_id] = "navigate_to_assign"
+            bot.send_message(chat_id, "📍 وضع تعيين المشرف المخصص:\nتصفح الأقسام الآن بشكل طبيعي حتى تصل للمقرر أو القسم المطلوب، ثم اضغط على الزر الجديد (✅ تعيين مشرف لهذا القسم) الذي سيظهر لك في أعلى القائمة لتحديد النطاق.")
+            user_path[chat_id] = []
+            show_menu(chat_id)
+            return
+
+        if mode == "navigate_to_assign" and text == "✅ تعيين مشرف لهذا القسم":
+            admin_action_mode[chat_id] = "ask_path_admin_id"
+            bot.send_message(chat_id, f"👤 المسار المختار بدقة هو:\n`{path_str}`\n\nأرسل الآن الرقم التعريفي (الآيدي) للمشرف لربطه بهذا المسار حصرياً:", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+            return
+
+        if mode == "ask_path_admin_id" and text:
+            try:
+                target_id = int(text.strip())
+                admins_col.update_one(
+                    {"id": target_id}, 
+                    {"$set": {"id": target_id, "type": "path"}, "$addToSet": {"allowed_paths": path_str}}, 
+                    upsert=True
+                )
+                bot.send_message(chat_id, f"✅ تم بنجاح إضافة المشرف (ID: {target_id}) وتقييد صلاحياته حصرياً على هذا المسار.", parse_mode="Markdown")
+                reset_modes(chat_id)
+                show_menu(chat_id)
+            except:
+                bot.send_message(chat_id, "❌ خطأ: الآيدي يجب أن يكون أرقاماً فقط (مثلاً: 12345678).")
+            return
+
     if is_super_admin(chat_id):
         if text == "👥 إحصائيات المشتركين":
             all_users = list(users_col.find())
@@ -876,50 +914,6 @@ def universal_handler(message):
             bot.send_message(chat_id, "📢 أرسل نص أو محتوى التعميم أو الرسالة الجماعية المراد بثها وتوجيهها لكافة المشتركين في قاعدة البيانات الآن:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
             return
 
-    # أوامر المشرف العام والمشرف المطلق (التجربة وإضافة مسار مخصص)
-    if is_super_admin(chat_id) or is_global_admin(chat_id):
-        if text == "👤 تجربة كمستخدم":
-            testing_mode[chat_id] = True
-            bot.send_message(chat_id, "👀 تم تفعيل وضع المحاكاة بنجاح! أنت الآن تتصفح وتتعامل مع البوت بهوية طالب عادي بدون صلاحيات إشراف.")
-            user_path[chat_id] = []
-            show_menu(chat_id)
-            return
-
-        if text == "🛑 إنهاء التجربة والعودة للإشراف" and testing_mode.get(chat_id):
-            testing_mode[chat_id] = False
-            bot.send_message(chat_id, "💼 تم إنهاء وضع المحاكاة بنجاح وعادت إليك كامل صلاحياتك الإدارية والتحكم بالمنصة.")
-            user_path[chat_id] = []
-            show_menu(chat_id)
-            return
-
-        if text == "➕ إضافة مشرف مسار مخصص":
-            reset_modes(chat_id)
-            admin_action_mode[chat_id] = "navigate_to_assign"
-            bot.send_message(chat_id, "📍 وضع تعيين المشرف المخصص:\nتصفح الأقسام الآن بشكل طبيعي حتى تصل للمقرر أو القسم المطلوب، ثم اضغط على الزر الجديد (✅ تعيين مشرف لهذا القسم) الذي سيظهر لك في أعلى القائمة لتحديد النطاق.")
-            user_path[chat_id] = []
-            show_menu(chat_id)
-            return
-
-        if mode == "navigate_to_assign" and text == "✅ تعيين مشرف لهذا القسم":
-            admin_action_mode[chat_id] = "ask_path_admin_id"
-            bot.send_message(chat_id, f"👤 المسار المختار بدقة هو:\n`{path_str}`\n\nأرسل الآن الرقم التعريفي (الآيدي) للمشرف لربطه بهذا المسار حصرياً:", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
-            return
-
-        if mode == "ask_path_admin_id" and text:
-            try:
-                target_id = int(text.strip())
-                admins_col.update_one(
-                    {"id": target_id}, 
-                    {"$set": {"id": target_id, "type": "path"}, "$addToSet": {"allowed_paths": path_str}}, 
-                    upsert=True
-                )
-                bot.send_message(chat_id, f"✅ تم بنجاح إضافة المشرف (ID: {target_id}) وتقييد صلاحياته حصرياً على هذا المسار.", parse_mode="Markdown")
-                reset_modes(chat_id)
-                show_menu(chat_id)
-            except:
-                bot.send_message(chat_id, "❌ خطأ: الآيدي يجب أن يكون أرقاماً فقط (مثلاً: 12345678).")
-            return
-
     if has_permission(chat_id, path_str) and path_str:
         if text == "➕ إضافة ملف/نص":
             reset_modes(chat_id)
@@ -956,40 +950,6 @@ def universal_handler(message):
         user_path[chat_id][-1] = text.strip()  
         bot.send_message(chat_id, "✅ تم تحديث وإعادة تسمية المجلد في قاعدة البيانات بنجاح الفوري.")
         reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if mode == "add_hashtag" and text and is_super_admin(chat_id):
-        final_tag = text.strip()
-        if not final_tag.startswith("#"):
-            final_tag = "#" + final_tag
-        hashtags_col.insert_one({"tag": final_tag, "path": path_str})
-        bot.send_message(chat_id, f"✅ تم ربط واعتماد الهاشتاج {final_tag} بهذا القسم الدراسي بنجاح التام.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-        
-    if mode == "del_hashtag" and text and is_super_admin(chat_id):
-        final_tag = text.strip()
-        if not final_tag.startswith("#"):
-            final_tag = "#" + final_tag
-        del_res = hashtags_col.delete_one({"tag": final_tag})
-        bot.send_message(chat_id, "✅ تم إلغاء ربط وحذف الهاشتاج من النظام." if del_res.deleted_count > 0 else "❌ تنبيه: هذا الهاشتاج غير مسجل في قاعدة البيانات.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if broadcast_mode.get(chat_id) and is_super_admin(chat_id):
-        broadcast_mode[chat_id] = False
-        bot.send_message(chat_id, "⏳ جاري بدء البث الجماعي وتعميم الرسالة على كافة المشتركين بالمنصة...")
-        broadcast_success_count = 0
-        for student_user in list(users_col.find()):
-            try:
-                bot.copy_message(student_user['chat_id'], chat_id, message.message_id)
-                broadcast_success_count += 1
-            except:
-                pass
-        bot.send_message(chat_id, f"📢 اكتمل البث الجماعي للمنصة بنجاح!\n✅ تم إيصال وتعميم الرسالة الإدارية إلى {broadcast_success_count} طالب مشترك.")
         show_menu(chat_id)
         return
 
