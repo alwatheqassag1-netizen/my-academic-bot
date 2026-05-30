@@ -12,24 +12,17 @@ import re
 import requests
 import os
 
-# ==========================================
-# 1. الإعدادات والترميز وحل مشكلات التوافق
-# ==========================================
 if sys.version_info >= (3, 0):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 API_TOKEN = '7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A'
-SUPER_ADMIN_ID = 6842543527  # الواثق (المشرف العام المطلق)
+SUPER_ADMIN_ID = 6842543527  
 MONGO_URI = "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0"
-GEMINI_API_KEY = "AIzaSy" # سيتم جلب مفتاح بيئة التشغيل الفعلي إذا كان متوفراً
+GEMINI_API_KEY = "AIzaSy" 
 
-# محاولة تحميل مفتاح الـ API الحقيقي من متغيرات البيئة إن وجد
 if "GEMINI_API_KEY" in os.environ:
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# ==========================================
-# 2. الاتصال الآمن وقصير المدى بقاعدة البيانات
-# ==========================================
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     db = client['academic_bot_db']
@@ -42,16 +35,14 @@ try:
     auth_groups_col = db['auth_groups']
     alerts_col = db['course_alerts']
     
-    # --- الجداول الجديدة المضافة بناءً على طلبك ---
-    kb_col = db['knowledge_base']          # مكتبة الأسئلة المتكررة
-    ai_usage_col = db['ai_usage']          # نظام حصص الذكاء الاصطناعي
-    reminders_col = db['personal_reminders'] # نظام التذكير الشخصي
+    kb_col = db['knowledge_base']          
+    ai_usage_col = db['ai_usage']          
+    reminders_col = db['personal_reminders'] 
     
     print("Database Connected Flawlessly! 🎉")
 except Exception as db_err:
     print(f"MongoDB Error Context: {db_err}")
 
-# زرع وثائق التهيئة الافتراضية لحماية المنصة من الانهيار
 if admins_col.count_documents({"id": SUPER_ADMIN_ID}) == 0:
     admins_col.insert_one({"id": SUPER_ADMIN_ID, "type": "super", "allowed_paths": []})
 if settings_col.count_documents({}) == 0:
@@ -60,11 +51,8 @@ if settings_col.count_documents({}) == 0:
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 BOT_USERNAME = bot.get_me().username
-media_groups = {}  # مجمع ألبومات تيليجرام لمنع سقوط الملفات المتعددة
+media_groups = {}  
 
-# ==========================================
-# 3. الهيكل الأكاديمي الصارم والمجلد الاحترافي
-# ==========================================
 ACADEMIC_STRUCTURE = {
     "🌱 مستوى أول": {
         "📅 ترم أول": {},
@@ -81,10 +69,9 @@ ACADEMIC_STRUCTURE = {
     "🌿 مستوى ثاني": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
     "☘️ مستوى ثالث": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
     "🌳 مستوى رابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
-    "🌟 ميزات مساعدة للطالب": {}  # المجلد المعزول لجميع الأدوات الذكية والمساعدة
+    "🌟 ميزات مساعدة للطالب": {}  
 }
 
-# قواميس حفظ الجلسات وحالات المستخدمين والمشرفين
 user_path = {}
 upload_mode = {}
 add_folder_mode = {}
@@ -94,9 +81,6 @@ action_payload = {}
 temp_data = {}
 broadcast_mode = {}
 
-# ==========================================
-# 4. منظومة الصلاحيات والأمان المتعددة المستويات
-# ==========================================
 def is_super_admin(chat_id):
     return chat_id == SUPER_ADMIN_ID
 
@@ -110,7 +94,6 @@ def has_permission(chat_id, current_path_str):
         return False
     if admin.get("type") == "global": 
         return True
-    # صلاحيات مشرف المسار المخصص (Prefix Matching)
     for allowed_p in admin.get("allowed_paths", []):
         if current_path_str.startswith(allowed_p) or current_path_str == allowed_p:
             return True
@@ -135,13 +118,9 @@ def reset_modes(chat_id):
     admin_action_mode[chat_id] = None
     action_payload.pop(chat_id, None)
 
-# ==========================================
-# 5. محرك الذكاء الاصطناعي الخارق والمضمون 100%
-# ==========================================
 def get_ai_response(prompt):
     clean_prompt = f"أنت مساعد ذكي ومفيد للمنصة الأكاديمية الرسمية لقسم الذكاء الاصطناعي وعلوم البيانات. أجب على الأسئلة العامة أو الأكاديمية أو البرمجية بدقة واختصار وباللغة العربية الفصحى: {prompt}"
     
-    # الخطة (أ): الاستدعاء المباشر عبر موديلات جوجل المتعددة بالتوالي في حالة توفر المفتاح وسيرفرات الخدمة
     if GEMINI_API_KEY and not GEMINI_API_KEY.startswith("AIzaSy"):
         for model_name in ["gemini-2.0-flash-lite-preview-02-05", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
@@ -157,7 +136,6 @@ def get_ai_response(prompt):
             except:
                 continue
 
-    # الخطة (ب) المضمونة 100%: خوادم المعالجة اللغوية الحرة والمفتوحة بدون مفاتيح المقارنة
     for backup_model in ["openai", "llama", "mistral"]:
         try:
             encoded_prompt = requests.utils.quote(clean_prompt)
@@ -170,9 +148,6 @@ def get_ai_response(prompt):
 
     return "🤖 نعتذر بشدة، تواجه خوادم الذكاء الاصطناعي ضغطاً عالمياً غير متوقع حالياً. يرجى إعادة إرسال استفسارك بعد لحظات بسيطة."
 
-# ==========================================
-# 5.1 العامل الخلفي لمنظومة التنبيهات الشخصية (Background Worker)
-# ==========================================
 def reminder_worker():
     while True:
         try:
@@ -188,12 +163,8 @@ def reminder_worker():
             pass
         time.sleep(60)
 
-# تشغيل العامل في الخلفية لضمان عدم توقف السيرفر
 threading.Thread(target=reminder_worker, daemon=True).start()
 
-# ==========================================
-# 6. المعالجة المتقدمة وحفظ باقات المستندات (Multi-File System)
-# ==========================================
 def build_file_doc(message, path_str):
     if message.content_type == 'document':
         name = message.document.file_name or "مستند غير مسمى"
@@ -225,7 +196,6 @@ def build_file_doc(message, path_str):
     }
 
 def notify_subscribers(file_name, path_str, uploader_id):
-    """إرسال إشعار للمشتركين فقط عند رفع ملف جديد"""
     subscribers = list(users_col.find({"smart_notifications": True}))
     for sub in subscribers:
         if sub['chat_id'] != uploader_id:
@@ -256,9 +226,6 @@ def process_media_group(chat_id, media_group_id, path_str):
     except:
         pass
 
-# ==========================================
-# 7. الأرشفة التلقائية ومراقبة المجموعات
-# ==========================================
 def auto_archive_handler_logic(message):
     if not auth_groups_col.find_one({"chat_id": message.chat.id}):
         return 
@@ -275,15 +242,22 @@ def auto_archive_handler_logic(message):
                     pass
             break
 
-# ==========================================
-# 8. أوامر الترحيب والمعلومات الرسمية الشاملة
-# ==========================================
 @bot.message_handler(commands=['start'])
 def start_command(message):
     chat_id = message.chat.id
+    user_data = users_col.find_one({"chat_id": chat_id})
+    
+    if user_data and user_data.get("blocked"):
+        bot.send_message(chat_id, "🚫 عذراً، تم حظرك من استخدام هذه المنصة وتقييد وصولك للأرشيف.")
+        return
+
+    settings = settings_col.find_one({})
+    if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
+        bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
+        return
+
     first_name = message.from_user.first_name or "أيها الطالب الطموح"
     
-    # تحديث بيانات الطالب وتفعيل إشعارات الوصول افتراضياً
     users_col.update_one(
         {"chat_id": chat_id}, 
         {
@@ -293,7 +267,6 @@ def start_command(message):
         upsert=True
     )
     
-    # فك تشفير روابط النشر والمشاركة المباشرة العميقة (Deep Linking)
     command_args = message.text.split()
     if len(command_args) > 1:
         try:
@@ -320,6 +293,15 @@ def start_command(message):
 
 @bot.message_handler(commands=['info'])
 def info_command_handler(message):
+    chat_id = message.chat.id
+    user_data = users_col.find_one({"chat_id": chat_id})
+    if user_data and user_data.get("blocked"):
+        return
+
+    settings = settings_col.find_one({})
+    if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
+        return
+
     info_msg = (
         "🤖 *المنصة الأكاديمية الذكية (AI & DS)* 🎓\n\n"
         "مرحباً بك في بوابتك الأكاديمية الرقمية، المخصصة لخدمة طلاب قسم الذكاء الاصطناعي وعلوم البيانات. تم تصميم هذا البوت ليكون رفيقك الدائم في رحلتك الدراسية.\n\n"
@@ -352,9 +334,6 @@ def unauth_command(message):
         auth_groups_col.delete_one({"chat_id": message.chat.id})
         bot.reply_to(message, "⛔ تم سحب الاعتماد وتجريد المجموعة من صلاحيات الأرشفة التلقائية.")
 
-# ==========================================
-# 9. نظام توليد وعرض القوائم والديناميكية الشاملة
-# ==========================================
 def show_menu(chat_id):
     path = user_path.get(chat_id, [])
     current_menu = get_menu_by_path(path)
@@ -380,14 +359,13 @@ def show_menu(chat_id):
             markup.add("📢 إرسال رسالة جماعية", "👥 إحصائيات المشتركين")
             markup.add("🛠️ إدارة المشرفين", "⚙️ التحكم بالنظام")
             markup.add("🏷️ إدارة الأرشفة", "📂 إضافة مجلد بالرئيسية")
-            markup.add("👤 تجربة كمستخدم")
+            markup.add("🚫 حظر/فك حظر مستخدم", "👤 تجربة كمستخدم")
         elif is_super_admin(chat_id) and testing_mode.get(chat_id):
             markup.add("🛑 إنهاء التجربة والعودة للإشراف")
             
         bot.send_message(chat_id, "⚙️ يرجى تحديد القسم الأكاديمي المطلوب من لوحة الخيارات التالية:", reply_markup=markup)
         return
 
-    # عرض محتوى مجلد ميزات الطالب المطور
     if path_str == "🌟 ميزات مساعدة للطالب":
         user_data = users_col.find_one({"chat_id": chat_id})
         notif_btn = "🔕 إلغاء الإشعارات" if user_data and user_data.get("smart_notifications") else "🔔 تفعيل الإشعارات"
@@ -454,12 +432,19 @@ def send_file_to_user(chat_id, res, has_perm):
     except Exception as fetch_err:
         bot.send_message(chat_id, f"❌ خطأ تقني غير متوقع أثناء استخراج المستند: {fetch_err}")
 
-# ==========================================
-# 10. المعالج المركزي الذكي المطلق (Universal Core Handler)
-# ==========================================
 @bot.message_handler(content_types=['text', 'document', 'photo', 'video', 'audio'])
 def universal_handler(message):
     chat_id = message.chat.id
+    
+    user_data = users_col.find_one({"chat_id": chat_id})
+    if user_data and user_data.get("blocked"):
+        return
+
+    settings = settings_col.find_one({})
+    if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
+        bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
+        return
+
     text = message.text if message.content_type == 'text' else ""
     path_str = get_path_string(chat_id)
     mode = admin_action_mode.get(chat_id)
@@ -469,7 +454,6 @@ def universal_handler(message):
         if message.content_type != 'text' or not text.startswith("/"):
             return
 
-    # [1] نظام الاستقبال الاحترافي والذكي للمستندات والملفات المتعددة
     if message.content_type in ['document', 'photo', 'video', 'audio'] and upload_mode.get(chat_id):
         if has_permission(chat_id, path_str):
             if getattr(message, "media_group_id", None):
@@ -487,7 +471,6 @@ def universal_handler(message):
                     notify_subscribers(doc['name'], path_str, chat_id)
             return
 
-    # أزرار الإلغاء الشاملة والتحكم
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id)
         bot.send_message(chat_id, "✅ تم إلغاء الإجراء الحالي والعودة بأمان.")
@@ -507,7 +490,6 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-    # التحكم في الإشعارات
     if text in ["🔔 تفعيل الإشعارات", "🔕 إلغاء الإشعارات"]:
         new_status = (text == "🔔 تفعيل الإشعارات")
         users_col.update_one({"chat_id": chat_id}, {"$set": {"smart_notifications": new_status}})
@@ -515,13 +497,11 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-    # الروابط الإدارية والخدمية في الشاشة الرئيسية
     if text == "👨‍💻 تواصل مع المشرف العام":
         dev_text = ("👨‍💻 *تواصل مع المشرف العام للمنصة:*\n\n🔹 *الواثق بالله عساج* ⇦ (@AlwatheqAssag)\n\nلأي استفسارات أكاديمية أو الإبلاغ عن مشاكل في الخوادم أو تقديم ملفات وملخصات دراسية لإثراء المنصة، يرجى التواصل مباشرة عبر المعرف الرسمي أعلاه.")
         bot.send_message(chat_id, dev_text, parse_mode="Markdown")
         return
 
-    # [2] ميزات مجلد المساعد الأكاديمي المطور للطالب
     if text == "🤖 المساعد الذكي (AI)":
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "ai_chat"
@@ -529,7 +509,6 @@ def universal_handler(message):
         return
     
     if mode == "ai_chat" and text:
-        # فحص الحصص اليومية
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
         usage = ai_usage_col.find_one({"chat_id": chat_id, "date": today_str})
         count = usage['count'] + 1 if usage else 1
@@ -540,7 +519,6 @@ def universal_handler(message):
             
         bot.send_message(chat_id, "⏳ جاري التفكير وتحليل الاستفسار وتوليد الرد...")
         
-        # فحص مكتبة الأسئلة المتكررة أولاً
         cached_ans = kb_col.find_one({"question": text})
         if cached_ans:
             final_ans = cached_ans['answer'] + "\n\n*(⚡ إجابة فورية من مكتبة الأسئلة المتكررة الخاصة بالقسم)*"
@@ -553,7 +531,6 @@ def universal_handler(message):
         except:
             bot.send_message(chat_id, final_ans)
             
-        # تسجيل الاستخدام وتنبيه الطالب عند المحاولة السادسة
         if not is_super_admin(chat_id):
             ai_usage_col.update_one({"chat_id": chat_id, "date": today_str}, {"$set": {"count": count}}, upsert=True)
             if count == 6:
@@ -563,7 +540,6 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-    # التذكيرات الشخصية للطلاب
     if text == "⏰ تذكير شخصي (خاص بي)":
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "set_reminder_text"
@@ -588,7 +564,6 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-    # البحث الشامل والفرز
     if text == "🔍 بحث عن ملف":
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "search_type"
@@ -646,7 +621,6 @@ def universal_handler(message):
         bot.send_message(chat_id, info_text, parse_mode="Markdown")
         return
 
-    # [3] منظومة التنبيهات المخصصة للمقررات والمواد الدراسية (التعميمات)
     if text == "🔔 تنبيهات المقررات":
         active_alerts = list(alerts_col.find())
         if not active_alerts:
@@ -673,7 +647,6 @@ def universal_handler(message):
         alerts_col.insert_one({"text": text.strip(), "created_at": datetime.utcnow()})
         bot.send_message(chat_id, "✅ تم حفظ التنبيه الجديد ونشره بنجاح داخل مركز التنبيهات.")
         
-        # تعميم التنبيه الإداري فوراً كرسالة لجميع المشتركين
         for student_user in list(users_col.find()):
             try:
                 bot.send_message(student_user['chat_id'], f"📢 *تنبيه إداري جديد للمقررات:*\n{text.strip()}", parse_mode="Markdown")
@@ -692,7 +665,6 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-    # [4] لوحة المشرف العام المطلقة والتحكم بالنظام وإحصائيات الطلاب
     if is_super_admin(chat_id):
         if text == "👥 إحصائيات المشتركين":
             all_users = list(users_col.find())
@@ -766,8 +738,17 @@ def universal_handler(message):
             return
 
         if text == "🛠️ إدارة المشرفين":
+            admin_docs = list(admins_col.find())
+            msg_text = "🛠️ *قائمة المشرفين الحاليين:*\n\n"
+            for adm in admin_docs:
+                u_info = users_col.find_one({"chat_id": adm["id"]})
+                name = u_info.get("first_name", "مجهول") if u_info else "مجهول"
+                uname = u_info.get("username", "-") if u_info else "-"
+                adm_type = "عام" if adm.get("type") == "global" else ("مطلق" if adm.get("type") == "super" else "مسار مخصص")
+                msg_text += f"👤 {name} | {uname} | `{adm['id']}` | الصلاحية: {adm_type}\n"
+            
             adm_markup = ReplyKeyboardMarkup(resize_keyboard=True).add("➕ إضافة مشرف عام", "➕ إضافة مشرف مسار مخصص", "➖ إزالة مشرف", "🔝 القائمة الرئيسية")
-            bot.send_message(chat_id, "🛠️ لوحة إدارة الصلاحيات وتعيين رتب الإشراف الفرعية لمساعدتك في إدارة ملفات المقررات:", reply_markup=adm_markup)
+            bot.send_message(chat_id, msg_text + "\nلوحة إدارة الصلاحيات وتعيين رتب الإشراف الفرعية:", reply_markup=adm_markup, parse_mode="Markdown")
             return
 
         if text == "➕ إضافة مشرف عام":
@@ -788,171 +769,194 @@ def universal_handler(message):
             bot.send_message(chat_id, "👤 أرسل الرقم التعريفي للمشرف المراد سحب كافة صلاحيات الإشراف منه فوراً:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
             return
 
+        if text == "🚫 حظر/فك حظر مستخدم":
+            reset_modes(chat_id)
+            admin_action_mode[chat_id] = "block_unblock_user"
+            bot.send_message(chat_id, "🚫 أرسل الـ ID أو اليوزرنيم (مثل @username) للمستخدم لحظره أو فك حظره:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+            return
+
+        if mode == "block_unblock_user" and text and is_super_admin(chat_id):
+            target = text.strip()
+            query = {"chat_id": int(target)} if target.isdigit() else {"username": target if target.startswith('@') else f"@{target}"}
+            user_to_block = users_col.find_one(query)
+            
+            if user_to_block:
+                if user_to_block["chat_id"] == SUPER_ADMIN_ID:
+                    bot.send_message(chat_id, "❌ تنبيه: لا يمكنك حظر المشرف العام!")
+                else:
+                    current_status = user_to_block.get("blocked", False)
+                    new_status = not current_status
+                    users_col.update_one({"_id": user_to_block["_id"]}, {"$set": {"blocked": new_status}})
+                    status_str = "محظور 🚫" if new_status else "نشط ✅"
+                    bot.send_message(chat_id, f"✅ تم تغيير حالة المستخدم [{user_to_block.get('first_name', 'مجهول')}] إلى: {status_str}")
+            else:
+                bot.send_message(chat_id, "❌ لم يتم العثور على مستخدم بهذا المعرف أو الآيدي في قاعدة البيانات.")
+            
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
         if text == "📢 إرسال رسالة جماعية":
             reset_modes(chat_id)
             broadcast_mode[chat_id] = True
             bot.send_message(chat_id, "📢 أرسل نص أو محتوى التعميم أو الرسالة الجماعية المراد بثها وتوجيهها لكافة المشتركين في قاعدة البيانات الآن:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
             return
 
-    # إنهاء تجربة وضع المحاكاة للطالب والعودة للرتبة الإدارية
-    if text == "🛑 إنهاء التجربة والعودة للإشراف" and is_super_admin(chat_id):
-        testing_mode[chat_id] = False
-        bot.send_message(chat_id, "💼 تم إنهاء وضع المحاكاة بنجاح وعادت إليك كامل صلاحيات الإدارة العليا المطلقة والتحكم بالمنصة.")
-        user_path[chat_id] = []
-        show_menu(chat_id)
-        return
-
-    # [5] العمليات التنظيمية والهيكلية للمشرفين المعتمدين في المسار الحالي (إضافة وتعديل وحذف الأقسام)
-    if has_permission(chat_id, path_str) and path_str:
-        if text == "➕ إضافة ملف/نص":
-            reset_modes(chat_id)
-            upload_mode[chat_id] = True
-            bot.send_message(chat_id, "📥 وضع استقبال المستندات نشط!\nأرسل الآن الملفات الأكاديمية (PDF، صور، نصوص، ملخصات) بشكل مفرد أو دفعة واحدة (ألبوم) ليتم تخزينها وحفظها تلقائياً في هذا القسم:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
-            return
-
-        if text == "📂 إضافة مجلد":
-            reset_modes(chat_id)
-            add_folder_mode[chat_id] = True
-            bot.send_message(chat_id, "📂 اكتب واส่ง اسم المجلد الأكاديمي الفرعي الجديد لإنشائه داخل القسم الحالي:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
-            return
-        
-        if text == "🗑️ حذف هذا القسم":
-            parent_p_str = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
-            folders_col.delete_one({"parent_path": parent_p_str, "folder_name": user_path[chat_id][-1]})
-            bot.send_message(chat_id, f"🗑️ تم حذف وتدمير مجلد القسم الدراسي الحالي من قاعدة البيانات بنجاح.")
-            if user_path[chat_id]:
-                user_path[chat_id].pop()
-            reset_modes(chat_id)
-            show_menu(chat_id)
-            return
-
-        if text == "✏️ إعادة تسمية هذا القسم":
-            reset_modes(chat_id)
-            admin_action_mode[chat_id] = "rename_folder_action"
-            bot.send_message(chat_id, f"✏️ أرسل الآن الاسم الجديد للقسم البديل لـ ( {user_path[chat_id][-1]} ):", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
-            return
-
-    # [6] التقاط معالجات المدخلات النصية للأوضاع الإدارية والهيكلية المختلفة
-    if mode == "rename_folder_action" and text:
-        old_folder_name = user_path[chat_id][-1]
-        parent_p_str = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
-        folders_col.update_one({"parent_path": parent_p_str, "folder_name": old_folder_name}, {"$set": {"folder_name": text.strip()}})
-        user_path[chat_id][-1] = text.strip()  
-        bot.send_message(chat_id, "✅ تم تحديث وإعادة تسمية المجلد في قاعدة البيانات بنجاح الفوري.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if mode == "add_hashtag" and text and is_super_admin(chat_id):
-        final_tag = text.strip()
-        if not final_tag.startswith("#"):
-            final_tag = "#" + final_tag
-        hashtags_col.insert_one({"tag": final_tag, "path": path_str})
-        bot.send_message(chat_id, f"✅ تم ربط واعتماد الهاشتاج {final_tag} بهذا القسم الدراسي بنجاح التام.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-        
-    if mode == "del_hashtag" and text and is_super_admin(chat_id):
-        final_tag = text.strip()
-        if not final_tag.startswith("#"):
-            final_tag = "#" + final_tag
-        del_res = hashtags_col.delete_one({"tag": final_tag})
-        bot.send_message(chat_id, "✅ تم إلغاء ربط وحذف الهاشتاج من النظام." if del_res.deleted_count > 0 else "❌ تنبيه: هذا الهاشتاج غير مسجل في قاعدة البيانات.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if broadcast_mode.get(chat_id) and is_super_admin(chat_id):
-        broadcast_mode[chat_id] = False
-        bot.send_message(chat_id, "⏳ جاري بدء البث الجماعي وتعميم الرسالة على كافة المشتركين بالمنصة...")
-        broadcast_success_count = 0
-        for student_user in list(users_col.find()):
-            try:
-                bot.copy_message(student_user['chat_id'], chat_id, message.message_id)
-                broadcast_success_count += 1
-            except:
-                pass
-        bot.send_message(chat_id, f"📢 اكتمل البث الجماعي للمنصة بنجاح!\n✅ تم إيصال وتعميم الرسالة الإدارية إلى {broadcast_success_count} طالب مشترك.")
-        show_menu(chat_id)
-        return
-
-    if mode == "add_global_admin" and text and is_super_admin(chat_id):
-        try:
-            admins_col.update_one({"id": int(text.strip())}, {"$set": {"type": "global"}}, upsert=True)
-            bot.send_message(chat_id, "✅ تمت إضافة المستخدم وترقيته كمشرف عام كامل الصلاحيات لجميع الأقسام الدراسية والمقررات.")
-        except:
-            bot.send_message(chat_id, "❌ خطأ: يرجى إرسال المعرف الرقمي (الآيدي فقط) بطريقة صحيحة بدون حروف.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if mode == "remove_admin" and text and is_super_admin(chat_id):
-        try:
-            target_id = int(text.strip())
-            if target_id != SUPER_ADMIN_ID:
-                admins_col.delete_one({"id": target_id})
-                bot.send_message(chat_id, "✅ تم تجريد المستخدم وسحب كافة صلاحيات الإشراف المخصصة أو العامة منه بنجاح وبشكل فوري.")
-        except:
-            bot.send_message(chat_id, "❌ خطأ: الآيدي الرقمي يجب أن يتكون من أرقام فقط.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
-
-    if mode == "add_path_admin_id" and text and is_super_admin(chat_id):
-        try:
-            temp_data[chat_id] = int(text.strip())
-            admin_action_mode[chat_id] = "add_path_admin_path"
+        if text == "🛑 إنهاء التجربة والعودة للإشراف" and is_super_admin(chat_id):
+            testing_mode[chat_id] = False
+            bot.send_message(chat_id, "💼 تم إنهاء وضع المحاكاة بنجاح وعادت إليك كامل صلاحيات الإدارة العليا المطلقة والتحكم بالمنصة.")
             user_path[chat_id] = []
-            bot.send_message(chat_id, "✅ الخطوة 2: تم حفظ رقم الآيدي بنجاح. تصفح الآن الأقسام والمجلدات للوصول للمادة والمقرر المخصص لهذا المشرف، ثم اضغط على زر تعيين الصلاحية لتحديد نطاقه.")
             show_menu(chat_id)
-        except:
-            bot.send_message(chat_id, "❌ خطأ في الإدخال: الآيدي يتكون من أرقام فقط.")
-        return
+            return
 
-    if mode == "rename_file" and text:
-        files_col.update_one({"_id": ObjectId(action_payload.get(chat_id))}, {"$set": {"name": text.strip()}})
-        bot.send_message(chat_id, "✅ تم تعديل وإعادة تسمية المستند في قاعدة البيانات بنجاح.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
+        if has_permission(chat_id, path_str) and path_str:
+            if text == "➕ إضافة ملف/نص":
+                reset_modes(chat_id)
+                upload_mode[chat_id] = True
+                bot.send_message(chat_id, "📥 وضع استقبال المستندات نشط!\nأرسل الآن الملفات الأكاديمية (PDF، صور، نصوص، ملخصات) بشكل مفرد أو دفعة واحدة (ألبوم) ليتم تخزينها وحفظها تلقائياً في هذا القسم:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+                return
 
-    if mode == "replace_file":
-        replacement_doc = build_file_doc(message, path_str)
-        if message.content_type in ['document', 'photo', 'video', 'audio']:
-            files_col.update_one(
-                {"_id": ObjectId(action_payload.get(chat_id))}, 
-                {"$set": {"type": replacement_doc['type'], "file_id": replacement_doc['file_id'], "name": replacement_doc['name'], "caption": replacement_doc['caption']}}
-            )
-        elif message.content_type == 'text':
-            files_col.update_one(
-                {"_id": ObjectId(action_payload.get(chat_id))}, 
-                {"$set": {"type": "text", "content": text, "name": text[:30], "caption": None, "file_id": None}}
-            )
-        bot.send_message(chat_id, "✅ تم استبدال وتحديث محتوى الملف القديم بنجاح المستند المرفق الجديد.")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
+            if text == "📂 إضافة مجلد":
+                reset_modes(chat_id)
+                add_folder_mode[chat_id] = True
+                bot.send_message(chat_id, "📂 اكتب واส่ง اسم المجلد الأكاديمي الفرعي الجديد لإنشائه داخل القسم الحالي:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+                return
+            
+            if text == "🗑️ حذف هذا القسم":
+                parent_p_str = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
+                folders_col.delete_one({"parent_path": parent_p_str, "folder_name": user_path[chat_id][-1]})
+                bot.send_message(chat_id, f"🗑️ تم حذف وتدمير مجلد القسم الدراسي الحالي من قاعدة البيانات بنجاح.")
+                if user_path[chat_id]:
+                    user_path[chat_id].pop()
+                reset_modes(chat_id)
+                show_menu(chat_id)
+                return
 
-    if add_folder_mode.get(chat_id) and text and has_permission(chat_id, path_str):
-        folders_col.insert_one({"parent_path": path_str, "folder_name": text.strip(), "created_at": datetime.utcnow()})
-        bot.send_message(chat_id, f"✅ تم إنشاء مجلد قسم دراسي جديد بنجاح باسم:\n📁 *{text.strip()}*", parse_mode="Markdown")
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
+            if text == "✏️ إعادة تسمية هذا القسم":
+                reset_modes(chat_id)
+                admin_action_mode[chat_id] = "rename_folder_action"
+                bot.send_message(chat_id, f"✏️ أرسل الآن الاسم الجديد للقسم البديل لـ ( {user_path[chat_id][-1]} ):", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+                return
 
-    if upload_mode.get(chat_id) and message.content_type == 'text' and has_permission(chat_id, path_str):
-        files_col.insert_one({
-            "menu_path": path_str, "name": text[:30].strip(), "type": "text", 
-            "content": text, "downloads": 0, "upload_date": datetime.utcnow()
-        })
-        bot.send_message(chat_id, "✅ تم حفظ التلخيص أو المحتوى النصي وإضافته بنجاح لقسم العرض.")
-        notify_subscribers("تلخيص نصي جديد", path_str, chat_id)
-        reset_modes(chat_id)
-        show_menu(chat_id)
-        return
+        if mode == "rename_folder_action" and text:
+            old_folder_name = user_path[chat_id][-1]
+            parent_p_str = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
+            folders_col.update_one({"parent_path": parent_p_str, "folder_name": old_folder_name}, {"$set": {"folder_name": text.strip()}})
+            user_path[chat_id][-1] = text.strip()  
+            bot.send_message(chat_id, "✅ تم تحديث وإعادة تسمية المجلد في قاعدة البيانات بنجاح الفوري.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
 
-    # [7] استدعاء والتقاط أسماء الملفات وقراءة المستندات الفعلية (PDF & Docs) من محاكاة تصفح لوحة المفاتيح
+        if mode == "add_hashtag" and text and is_super_admin(chat_id):
+            final_tag = text.strip()
+            if not final_tag.startswith("#"):
+                final_tag = "#" + final_tag
+            hashtags_col.insert_one({"tag": final_tag, "path": path_str})
+            bot.send_message(chat_id, f"✅ تم ربط واعتماد الهاشتاج {final_tag} بهذا القسم الدراسي بنجاح التام.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+            
+        if mode == "del_hashtag" and text and is_super_admin(chat_id):
+            final_tag = text.strip()
+            if not final_tag.startswith("#"):
+                final_tag = "#" + final_tag
+            del_res = hashtags_col.delete_one({"tag": final_tag})
+            bot.send_message(chat_id, "✅ تم إلغاء ربط وحذف الهاشتاج من النظام." if del_res.deleted_count > 0 else "❌ تنبيه: هذا الهاشتاج غير مسجل في قاعدة البيانات.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if broadcast_mode.get(chat_id) and is_super_admin(chat_id):
+            broadcast_mode[chat_id] = False
+            bot.send_message(chat_id, "⏳ جاري بدء البث الجماعي وتعميم الرسالة على كافة المشتركين بالمنصة...")
+            broadcast_success_count = 0
+            for student_user in list(users_col.find()):
+                try:
+                    bot.copy_message(student_user['chat_id'], chat_id, message.message_id)
+                    broadcast_success_count += 1
+                except:
+                    pass
+            bot.send_message(chat_id, f"📢 اكتمل البث الجماعي للمنصة بنجاح!\n✅ تم إيصال وتعميم الرسالة الإدارية إلى {broadcast_success_count} طالب مشترك.")
+            show_menu(chat_id)
+            return
+
+        if mode == "add_global_admin" and text and is_super_admin(chat_id):
+            try:
+                admins_col.update_one({"id": int(text.strip())}, {"$set": {"type": "global"}}, upsert=True)
+                bot.send_message(chat_id, "✅ تمت إضافة المستخدم وترقيته كمشرف عام كامل الصلاحيات لجميع الأقسام الدراسية والمقررات.")
+            except:
+                bot.send_message(chat_id, "❌ خطأ: يرجى إرسال المعرف الرقمي (الآيدي فقط) بطريقة صحيحة بدون حروف.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if mode == "remove_admin" and text and is_super_admin(chat_id):
+            try:
+                target_id = int(text.strip())
+                if target_id != SUPER_ADMIN_ID:
+                    admins_col.delete_one({"id": target_id})
+                    bot.send_message(chat_id, "✅ تم تجريد المستخدم وسحب كافة صلاحيات الإشراف المخصصة أو العامة منه بنجاح وبشكل فوري.")
+            except:
+                bot.send_message(chat_id, "❌ خطأ: الآيدي الرقمي يجب أن يتكون من أرقام فقط.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if mode == "add_path_admin_id" and text and is_super_admin(chat_id):
+            try:
+                temp_data[chat_id] = int(text.strip())
+                admin_action_mode[chat_id] = "add_path_admin_path"
+                user_path[chat_id] = []
+                bot.send_message(chat_id, "✅ الخطوة 2: تم حفظ رقم الآيدي بنجاح. تصفح الآن الأقسام والمجلدات للوصول للمادة والمقرر المخصص لهذا المشرف، ثم اضغط على زر تعيين الصلاحية لتحديد نطاقه.")
+                show_menu(chat_id)
+            except:
+                bot.send_message(chat_id, "❌ خطأ في الإدخال: الآيدي يتكون من أرقام فقط.")
+            return
+
+        if mode == "rename_file" and text:
+            files_col.update_one({"_id": ObjectId(action_payload.get(chat_id))}, {"$set": {"name": text.strip()}})
+            bot.send_message(chat_id, "✅ تم تعديل وإعادة تسمية المستند في قاعدة البيانات بنجاح.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if mode == "replace_file":
+            replacement_doc = build_file_doc(message, path_str)
+            if message.content_type in ['document', 'photo', 'video', 'audio']:
+                files_col.update_one(
+                    {"_id": ObjectId(action_payload.get(chat_id))}, 
+                    {"$set": {"type": replacement_doc['type'], "file_id": replacement_doc['file_id'], "name": replacement_doc['name'], "caption": replacement_doc['caption']}}
+                )
+            elif message.content_type == 'text':
+                files_col.update_one(
+                    {"_id": ObjectId(action_payload.get(chat_id))}, 
+                    {"$set": {"type": "text", "content": text, "name": text[:30], "caption": None, "file_id": None}}
+                )
+            bot.send_message(chat_id, "✅ تم استبدال وتحديث محتوى الملف القديم بنجاح المستند المرفق الجديد.")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if add_folder_mode.get(chat_id) and text and has_permission(chat_id, path_str):
+            folders_col.insert_one({"parent_path": path_str, "folder_name": text.strip(), "created_at": datetime.utcnow()})
+            bot.send_message(chat_id, f"✅ تم إنشاء مجلد قسم دراسي جديد بنجاح باسم:\n📁 *{text.strip()}*", parse_mode="Markdown")
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if upload_mode.get(chat_id) and message.content_type == 'text' and has_permission(chat_id, path_str):
+            files_col.insert_one({
+                "menu_path": path_str, "name": text[:30].strip(), "type": "text", 
+                "content": text, "downloads": 0, "upload_date": datetime.utcnow()
+            })
+            bot.send_message(chat_id, "✅ تم حفظ التلخيص أو المحتوى النصي وإضافته بنجاح لقسم العرض.")
+            notify_subscribers("تلخيص نصي جديد", path_str, chat_id)
+            reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
     if text and (text.startswith("📄 ") or text.startswith("📌 ") or text.startswith("🖼️ ")):
         extracted_filename = text.replace("📄 ", "").replace("📌 ", "").replace("🖼️ ", "").strip()
         found_file_doc = files_col.find_one({"menu_path": path_str, "name": extracted_filename})
@@ -966,7 +970,6 @@ def universal_handler(message):
             bot.send_message(chat_id, "❌ خطأ: تعذر العثور على المستند الفعلي في مسار الأرشيف الحالي.")
         return
 
-    # التصفح عبر النقر على أزرار المجلدات والدخول للأعماق الهيكلية
     if text.startswith("📁 "):
         user_path[chat_id].append(text.replace("📁 ", "").strip())
         show_menu(chat_id)
@@ -980,12 +983,20 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
-# ==========================================
-# 11. معالجات أزرار التحكم والعمليات الهيكلية الشفافة (Inline Callbacks)
-# ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
+    
+    user_data = users_col.find_one({"chat_id": chat_id})
+    if user_data and user_data.get("blocked"):
+        bot.answer_callback_query(call.id, "🚫 أنت محظور من الاستخدام.", show_alert=True)
+        return
+
+    settings = settings_col.find_one({})
+    if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
+        bot.answer_callback_query(call.id, "🚧 البوت في وضع الصيانة.", show_alert=True)
+        return
+
     action, target_object_id = call.data.split('_')
     
     file_document = files_col.find_one({"_id": ObjectId(target_object_id)})
@@ -1021,9 +1032,6 @@ def handle_inline_callbacks(call):
         show_menu(chat_id)
         bot.answer_callback_query(call.id, "جاري تحويل الوضع لنقل الملف.")
 
-# ==========================================
-# 12. مسارات الربط والاستماع الخاصة بـ Webhook لـ Render
-# ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook_listen_route():
     if request.headers.get('content-type') == 'application/json':
