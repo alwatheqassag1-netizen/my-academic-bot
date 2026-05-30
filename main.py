@@ -253,8 +253,12 @@ def start_command(message):
 
     settings = settings_col.find_one({})
     if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
-        bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
-        return
+        resume_at = settings.get("resume_at")
+        if resume_at and datetime.utcnow() >= resume_at:
+            settings_col.update_one({}, {"$set": {"status": "active", "resume_at": None}})
+        else:
+            bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
+            return
 
     first_name = message.from_user.first_name or "أيها الطالب الطموح"
     
@@ -275,6 +279,12 @@ def start_command(message):
                 files_col.update_one({"_id": target_file["_id"]}, {"$inc": {"downloads": 1}})
                 bot.send_message(chat_id, "📥 جاري سحب وإحضار الملف الأكاديمي المطلوب من قاعدة البيانات...")
                 send_file_to_user(chat_id, target_file, has_permission(chat_id, target_file['menu_path']))
+                
+                path_parts = target_file.get('menu_path', '').split(' > ')
+                if path_parts and path_parts[0]:
+                    user_path[chat_id] = path_parts
+                    bot.send_message(chat_id, f"📂 تم توجيهك تلقائياً إلى قسم هذا الملف لتصفح باقي المرفقات:\n`{target_file['menu_path']}`", parse_mode="Markdown")
+                    show_menu(chat_id)
                 return
         except:
             pass
@@ -300,7 +310,11 @@ def info_command_handler(message):
 
     settings = settings_col.find_one({})
     if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
-        return
+        resume_at = settings.get("resume_at")
+        if resume_at and datetime.utcnow() >= resume_at:
+            settings_col.update_one({}, {"$set": {"status": "active", "resume_at": None}})
+        else:
+            return
 
     info_msg = (
         "🤖 *المنصة الأكاديمية الذكية (AI & DS)* 🎓\n\n"
@@ -359,7 +373,8 @@ def show_menu(chat_id):
             markup.add("📢 إرسال رسالة جماعية", "👥 إحصائيات المشتركين")
             markup.add("🛠️ إدارة المشرفين", "⚙️ التحكم بالنظام")
             markup.add("🏷️ إدارة الأرشفة", "📂 إضافة مجلد بالرئيسية")
-            markup.add("🚫 حظر/فك حظر مستخدم", "👤 تجربة كمستخدم")
+            markup.add("🚫 حظر/فك حظر مستخدم", "🧹 أرشفة الملفات القديمة")
+            markup.add("👤 تجربة كمستخدم")
         elif is_super_admin(chat_id) and testing_mode.get(chat_id):
             markup.add("🛑 إنهاء التجربة والعودة للإشراف")
             
@@ -442,8 +457,12 @@ def universal_handler(message):
 
     settings = settings_col.find_one({})
     if settings and settings.get("status") == "inactive" and not is_super_admin(chat_id):
-        bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
-        return
+        resume_at = settings.get("resume_at")
+        if resume_at and datetime.utcnow() >= resume_at:
+            settings_col.update_one({}, {"$set": {"status": "active", "resume_at": None}})
+        else:
+            bot.send_message(chat_id, "🚧 البوت حالياً في وضع الصيانة والتحديث. يرجى المحاولة لاحقاً.")
+            return
 
     text = message.text if message.content_type == 'text' else ""
     path_str = get_path_string(chat_id)
@@ -470,6 +489,20 @@ def universal_handler(message):
                     bot.reply_to(message, f"✅ تم استقبال وحفظ المستند الفردي بنجاح:\n📄 *{doc['name']}*", parse_mode="Markdown")
                     notify_subscribers(doc['name'], path_str, chat_id)
             return
+
+    if text and not mode and not upload_mode.get(chat_id):
+        keywords = {
+            "معدل": "🌟 ميزات مساعدة للطالب",
+            "المعدل": "🌟 ميزات مساعدة للطالب",
+            "تذكير": "⏰ تذكير شخصي (خاص بي)",
+            "تنبيه": "🔔 تنبيهات المقررات",
+            "ذكاء اصطناعي": "🤖 المساعد الذكي (AI)"
+        }
+        for kw, target_action in keywords.items():
+            if text == kw:
+                bot.send_message(chat_id, f"💡 توجيه سريع بناءً على الكلمة المفتاحية: {kw}")
+                text = target_action 
+                break
 
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id)
@@ -509,6 +542,19 @@ def universal_handler(message):
         return
     
     if mode == "ai_chat" and text:
+        current_hour = datetime.utcnow().strftime("%Y-%m-%d-%H")
+        hourly_usage = ai_usage_col.find_one({"hour": current_hour})
+        hr_count = hourly_usage['count'] + 1 if hourly_usage else 1
+        
+        if hr_count > 100 and not is_super_admin(chat_id):
+            resume_time = datetime.utcnow() + timedelta(minutes=15)
+            settings_col.update_one({}, {"$set": {"status": "inactive", "resume_at": resume_time}}, upsert=True)
+            bot.send_message(chat_id, "🚧 عذراً، تم تفعيل وضع الصيانة التلقائي بسبب الضغط العالي جداً على البوت. سيعود للعمل بعد 15 دقيقة تلقائياً.")
+            reset_modes(chat_id)
+            return
+            
+        ai_usage_col.update_one({"hour": current_hour}, {"$set": {"count": hr_count}}, upsert=True)
+
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
         usage = ai_usage_col.find_one({"chat_id": chat_id, "date": today_str})
         count = usage['count'] + 1 if usage else 1
@@ -793,6 +839,22 @@ def universal_handler(message):
                 bot.send_message(chat_id, "❌ لم يتم العثور على مستخدم بهذا المعرف أو الآيدي في قاعدة البيانات.")
             
             reset_modes(chat_id)
+            show_menu(chat_id)
+            return
+
+        if text == "🧹 أرشفة الملفات القديمة":
+            six_months_ago = datetime.utcnow() - timedelta(days=180)
+            old_files = list(files_col.find({"upload_date": {"$lt": six_months_ago}}))
+            if not old_files:
+                bot.send_message(chat_id, "✨ لا توجد ملفات مضى عليها أكثر من 6 أشهر. الأرشيف نظيف تماماً!")
+                return
+            
+            for f in old_files:
+                new_path = "🗄️ الأرشيف القديم > " + f['menu_path']
+                files_col.update_one({"_id": f["_id"]}, {"$set": {"menu_path": new_path}})
+            
+            folders_col.update_one({"parent_path": "", "folder_name": "🗄️ الأرشيف القديم"}, {"$set": {"created_at": datetime.utcnow()}}, upsert=True)
+            bot.send_message(chat_id, f"🧹 تمت عملية التنظيف الذكي بنجاح!\nتم نقل {len(old_files)} ملف إلى مجلد '🗄️ الأرشيف القديم'.")
             show_menu(chat_id)
             return
 
