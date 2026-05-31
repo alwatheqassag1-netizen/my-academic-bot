@@ -257,28 +257,42 @@ def check_rate_limit(chat_id):
 # ==========================================
 
 def get_ai_response(prompt, chat_id):
-    cached = kb_col.find_one({"prompt": prompt})
-    if cached: return cached["response"]
-
+    # 1. سجل المحادثة (السياق) - خاص بكل طلب
     history = ai_memory.get(chat_id, [])
-    contents = []
-    for h in history:
-        contents.append({"role": "user", "parts": [{"text": h['prompt']}]})
-        contents.append({"role": "model", "parts": [{"text": h['response']}]})
+    contents = [{"role": "user", "parts": [{"text": h['prompt']}]} if i % 2 == 0 else {"role": "model", "parts": [{"text": h['response']}]} for i, h in enumerate(history)]
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
+    # --- الخدمة الأولى: Gemini API (منفصلة تماماً) ---
     if GEMINI_API_KEY and not GEMINI_API_KEY.startswith("AIzaSy"):
-        for model in ["gemini-2.0-flash-lite-preview-02-05", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                res = requests.post(url, json={"contents": contents}, headers={'Content-Type': 'application/json'}, timeout=10)
-                if res.status_code == 200:
-                    ans = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-                    kb_col.insert_one({"prompt": prompt, "response": ans})
-                    ai_usage_col.insert_one({"chat_id": chat_id, "timestamp": datetime.utcnow()})
-                    return ans
-            except: continue
-    return "🤖 نعتذر، هناك ضغط شديد حالياً على الخوادم. يرجى إعادة المحاولة لاحقاً."
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}",
+                    json={"contents": contents}, timeout=8
+                )
+                if response.status_code == 200:
+                    ans = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+                    return ans # نجاح الخدمة الأولى
+            except Exception:
+                pass # تجاهل الخطأ والمتابعة للخدمة التالية
+
+    # --- الخدمة الثانية: OpenAI via Pollinations (منفصلة تماماً) ---
+    try:
+        response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=openai&seed=42", timeout=12)
+        if response.status_code == 200 and response.text:
+            return response.text.strip()
+    except Exception:
+        pass
+
+    # --- الخدمة الثالثة: Mistral via Pollinations (منفصلة تماماً) ---
+    try:
+        response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=mistral&seed=42", timeout=12)
+        if response.status_code == 200 and response.text:
+            return response.text.strip()
+    except Exception:
+        pass
+
+    return "🤖 نعتذر، تعذر الوصول إلى جميع خوادم الذكاء الاصطناعي في هذه اللحظة."
 
 # ==========================================
 # 7. الرفع المتسلسل الذكي المتقدم
