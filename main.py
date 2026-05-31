@@ -510,9 +510,6 @@ def show_menu(chat_id):
         if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
             markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
             markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
-    else:
-        if current_menu is None or len(path) > 1:
-            markup.add("📤 مساهمة بملف")
     
     if not is_owner(chat_id) or testing_mode.get(chat_id):
         if path_str: markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
@@ -977,12 +974,12 @@ def universal_handler(message):
         bot.send_message(chat_id, f"✅ تم {'إيقاف' if new_status == 'inactive' else 'تشغيل'} البوت بنجاح."); show_menu(chat_id); return
 
     # [العمليات الإدارية داخل الأقسام الديناميكية والمجلدات]
+    # تم تنظيف هذا الجزء بإزالة "مساهمة بملف"
     if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS"]:
         
-        if text == "📤 مساهمة بملف":
-            reset_modes(chat_id); upload_mode[chat_id] = True
-            bot.send_message(chat_id, "📥 أهلاً بك، يرجى إرسال الملفات (بصيغة PDF, DOCX, PPTX فقط).\n(يُمكنك إرسال أكثر من ملف دفعة واحدة):", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
-
+        # هنا كان يوجد كود مساهمة بملف، تم حذفه بالكامل للحفاظ على نظافة الكود.
+        
+        # إذا كان لديك أوامر أخرى هنا (مثل إضافة ملف للمشرفين)، ستظل تعمل بشكل طبيعي.
         if is_mod:
             if text == "➕ إضافة ملف/نص":
                 reset_modes(chat_id); upload_mode[chat_id] = True
