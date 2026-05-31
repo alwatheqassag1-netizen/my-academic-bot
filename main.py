@@ -364,13 +364,16 @@ def start_command(message):
     if len(command_args) > 1:
         param = command_args[1]
         try:
-            f_obj = files_col.find_one({"_id": ObjectId(param.replace("folder_", ""))})
-            if f_obj:
-                if param.startswith("folder_") and f_obj.get('menu_path'):
+            if param.startswith("folder_"):
+                folder_id = param.replace("folder_", "")
+                f_obj = files_col.find_one({"_id": ObjectId(folder_id)})
+                if f_obj and f_obj.get('menu_path'):
                     user_path[chat_id] = f_obj['menu_path'].split(' > ')
                     bot.send_message(chat_id, f"📂 تم التوجيه إلى المسار:\n`{f_obj['menu_path']}`", parse_mode="Markdown")
                     show_menu(chat_id); return
-                else:
+            else:
+                f_obj = files_col.find_one({"_id": ObjectId(param)})
+                if f_obj:
                     files_col.update_one({"_id": f_obj["_id"]}, {"$inc": {"downloads": 1}})
                     send_file_to_user(chat_id, f_obj, is_moderator(chat_id, f_obj['menu_path'])); return
         except: pass
@@ -492,8 +495,9 @@ def show_menu(chat_id):
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# دالة إرسال الملفات السليمة والخالية من الأخطاء
+# دالة بناء وإرسال واجهة الملف للمستخدم
 # ==========================================
+
 def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
@@ -503,22 +507,22 @@ def send_file_to_user(chat_id, res, has_perm):
 
         markup = InlineKeyboardMarkup(row_width=2)
 
-        # 1. أزرار المشرف الحصرية (تظهر للمشرف فقط عند استدعاء ملف لمحاضرة ما)
+        # 1. خيارات الإدارة الحصرية للمشرفين (تختفي عند الطالب العادي)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-            # 🔥 الخدعة الهندسية: أمر تحويل ونشر الملف مباشرة داخل الجروبات بلمحة عين دون خسارة الأزرار
+            # زر النشر في الجروبات الذكي للمشرفين
             markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query=f"file_{file_id_str}"))
 
-        # 2. أزرار التفاعل والمشاركة العامة
+        # 2. أزرار الطلاب العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. صياغة اسم الزر الشفاف للمجلد بناءً على المسار الأكاديمي
+        # 3. صياغة اسم الزر الشفاف للمجلد
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         if path_str:
@@ -534,11 +538,10 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        # زر المجلد الشفاف يظهر للمشرف فقط داخل البوت للتحكم السلس
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
-        # 4. إعداد بيانات الوصف والأمر النصي الأزرق الاحتياطي للطلاب العاديين
+        # 4. إعداد بيانات الوصف والأمر النصي الأزرق الصامد للطلاب
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -551,11 +554,8 @@ def send_file_to_user(chat_id, res, has_perm):
             avg_rt = 0.0
             
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
-        
-        # حقن الأمر النصي الصامد ليتنقل مع الطلاب تلقائياً عند تحويلهم اليدوي للملف
         caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
-        # 5. الإرسال المباشر والمستقر للمستخدم من خادم البوت نفسه كلياً
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
@@ -566,7 +566,6 @@ def send_file_to_user(chat_id, res, has_perm):
     except Exception as e: 
         logging.error(f"Send Error: {e}")
 
-
 # ==========================================
 # 10. المعالج المركزي (Router)
 # ==========================================
@@ -574,7 +573,6 @@ def send_file_to_user(chat_id, res, has_perm):
 @bot.message_handler(content_types=['text', 'document', 'photo', 'video', 'audio'])
 def universal_handler(message):
     chat_id = message.chat.id
-    
     settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     
     if settings.get("status") == "inactive" and not is_admin(chat_id):
@@ -1074,6 +1072,7 @@ def universal_handler(message):
 # ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
 # ==========================================
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
@@ -1129,8 +1128,78 @@ def handle_inline_callbacks(call):
         else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
         bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False); show_menu(chat_id)
 
+# =========================================================
+# 12. محرك النشر الفوري داخل الجروبات (Inline Handler)
+# =========================================================
+
+@bot.inline_handler(func=lambda query: query.query.startswith('file_'))
+def handle_admin_inline_share(query):
+    try:
+        if not is_moderator(query.from_user.id): return
+
+        obj_id = query.query.split('_', 1)[1]
+        res = files_col.find_one({"_id": ObjectId(obj_id)})
+        if not res: return
+
+        file_id_str = str(res['_id'])
+        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
+        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
+
+        path_str = res.get('menu_path', '')
+        btn_name = "📁 المجلد الرئيسي"
+        if path_str:
+            parts = path_str.split(' > ')
+            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
+            if len(clean_parts) >= 2:
+                section = clean_parts[-1]
+                course = clean_parts[-2]
+                if "نماذج" in section: section = "نماذج"
+                if "محاضرات" in section: section = "محاضرات"
+                if "ملخصات" in section: section = "ملخصات"
+                btn_name = f"📁 {section} - {course}"
+
+        group_markup = InlineKeyboardMarkup(row_width=2)
+        group_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
+        group_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
+
+        file_type = res.get('type', 'document')
+        file_id = res.get('file_id')
+        base_name = res.get('name', 'وثيقة أكاديمية')
+        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
+        
+        try:
+            ratings = list(ratings_col.find({"file_id": file_id_str}))
+            avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
+        except Exception:
+            avg_rt = 0.0
+
+        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+        caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
+
+        results = []
+        if file_type == 'photo' and file_id:
+            results.append(telebot.types.InlineQueryResultCachedPhoto(
+                id=file_id_str, photo_file_id=file_id, caption=caption, reply_markup=group_markup
+            ))
+        elif file_type == 'text':
+            results.append(telebot.types.InlineQueryResultArticle(
+                id=file_id_str, title=base_name, description="اضغط هنا لنشر هذا الملخص النصي فوراً داخل المحادثة",
+                input_message_content=telebot.types.InputTextMessageContent(res.get('content', base_name)),
+                reply_markup=group_markup
+            ))
+        elif file_id:
+            results.append(telebot.types.InlineQueryResultCachedDocument(
+                id=file_id_str, document_file_id=file_id, title=base_name,
+                description="اضغط هنا لنشر هذا المستند والمجلد الشفاف الخاص به فوراً",
+                caption=caption, reply_markup=group_markup
+            ))
+
+        bot.answer_inline_query(query.id, results, cache_time=1)
+    except Exception as e:
+        logging.error(f"Inline Share Error: {e}")
+
 # ==========================================
-# 12. تشغيل السيرفر (Webhook Setup)
+# 13. تشغيل السيرفر (Webhook Setup)
 # ==========================================
 
 @app.route('/webhook', methods=['POST'])
