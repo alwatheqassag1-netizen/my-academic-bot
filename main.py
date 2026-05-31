@@ -505,11 +505,13 @@ def show_menu(chat_id):
         else: markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
         
     # الصلاحيات داخل المسار (للمشرفين)
+    # الصلاحيات داخل المسار (للمشرفين)
     if is_moderator(chat_id, path_str):
         markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
         if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
             markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
             markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
+    # تم حذف الـ else الخاصة بـ "مساهمة بملف" بنجاح لحماية ونظافة الكود
     
     if not is_owner(chat_id) or testing_mode.get(chat_id):
         if path_str: markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
@@ -521,18 +523,51 @@ def send_file_to_user(chat_id, res, has_perm):
         if not res: return
         markup = InlineKeyboardMarkup(row_width=2)
         file_id_str = str(res['_id'])
-        
-        # إنشاء روابط تليجرام المباشرة (Deep Links)
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
-        bot_link = f"https://t.me/{BOT_USERNAME}?start={file_id_str}"
 
-        # بناء الأزرار التفاعلية للمحادثة المباشرة مع البوت
+        # 1. الأزرار الإدارية للمشرفين داخل البوت (تختفي تلقائياً عند إعادة التحويل)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
+            
+        # أزرار التفاعل الجانبية للطلاب داخل البوت
+        markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url))
+        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
+        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+
+        # 2. استخراج اسم المجلد الحالي تلقائياً لبناء الزر الذكي (مثل المحفظة في الصورة)
+        current_path_str = res.get('menu_path', '')
+        folder_button_name = "📂 عرض المقرر"  # الاسم الافتراضي
+        if current_path_str:
+            path_parts = current_path_str.split(' > ')
+            folder_button_name = f"📁 {path_parts[-1]}"  # يقتبس الاسم الفعلي مثل (📁 ثقافة اسلامية)
+
+        # 3. حقن الزر المعتمد على رابط url في سطر مستقل ليصمد عند عمل Forward للقنوات والجروبات
+        markup.add(InlineKeyboardButton(folder_button_name, url=deep_folder_url))
+
+        # 4. استكمال إعدادات الرسالة والإرسال الطبيعي للميديا
+        file_type, file_id, base_name = res.get('type', 'document'), res.get('file_id'), res.get('name', 'وثيقة')
+        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
+        
+        ratings = list(ratings_col.find({"file_id": file_id_str}))
+        avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
+        
+        caption = res.get('caption') or base_name
+        caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+
+        if file_type == 'text': 
+            bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
+        elif file_type == 'photo' and file_id: 
+            bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+        elif file_id: 
+            bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
+            
+    except Exception as e: 
+        logging.error(f"Send Error: {e}")
+
             
         markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url), InlineKeyboardButton("📂 عرض المقرر", url=deep_folder_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
