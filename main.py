@@ -559,60 +559,65 @@ def send_file_to_user(chat_id, res, has_perm):
         # =========================================================
         # 3. تجهيز أزرار الإدارة والتحكم (تظهر للطالب بشكل منفصل)
         # =========================================================
-        private_markup = InlineKeyboardMarkup(row_width=2)
-        if has_perm and not testing_mode.get(chat_id):
-            private_markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-        private_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
-        private_markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
-        private_markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+def send_file_to_user(chat_id, res, has_perm):
+    try:
+        if not res: return
+        markup = InlineKeyboardMarkup(row_width=2)
+        file_id_str = str(res['_id'])
+        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
+        
+        # =========================================================
+        # 🚀 الهندسة الذكية: الرابط الملتوي المضمون للصمود بدون قناة وبدون نوافذ تأكيد
+        # =========================================================
+        bypass_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}&text=📥 اضغط على الزر بالأسفل لفتح المجلد الأكاديمي فوراً 👇"
 
-        # =========================================================
-        # 4. إعداد بيانات الملف
-        # =========================================================
+        # 1. أزرار التحكم للمشرفين (تظهر داخل البوت بشكل طبيعي)
+        if has_perm and not testing_mode.get(chat_id):
+            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
+            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
+            markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
+            markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
+            
+        # 2. أزرار الطلاب والتفاعل
+        markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
+        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
+        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+
+        # 3. خوارزمية تسمية الزر الاحترافية (القسم - المقرر)
+        path_str = res.get('menu_path', '')
+        btn_name = "📁 المجلد الرئيسي" 
+        
+        if path_str:
+            parts = path_str.split(' > ')
+            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
+            if len(clean_parts) >= 2:
+                section = clean_parts[-1]
+                course = clean_parts[-2]
+                if "نماذج" in section: section = "نماذج"
+                if "محاضرات" in section: section = "محاضرات"
+                if "ملخصات" in section: section = "ملخصات"
+                btn_name = f"📁 {section} - {course}"
+            elif len(clean_parts) == 1:
+                btn_name = f"📁 {clean_parts[0]}"
+
+        # 4. إضافة زر المجلد السحري الذي يحمل الرابط الملتوي في سطر مستقل أسفل الملف
+        markup.add(InlineKeyboardButton(btn_name, url=bypass_url))
+
+        # 5. بناء وإرسال الملف بشكل مباشر ونظيف جداً
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
         up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-        
         ratings = list(ratings_col.find({"file_id": file_id_str}))
         avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
-        
-        caption = res.get('caption') or base_name
-        caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
-        # =========================================================
-        # 5. السحر الفعلي: النشر في القناة ثم التحويل الفوري للطالب
-        # =========================================================
-        posted_msg = None
-        try:
-            if file_type == 'text': 
-                posted_msg = bot.send_message(STORAGE_CHANNEL_ID, res.get('content', res['name']), reply_markup=channel_markup)
-            elif file_type == 'photo' and file_id: 
-                posted_msg = bot.send_photo(STORAGE_CHANNEL_ID, file_id, caption=caption, reply_markup=channel_markup)
-            elif file_id: 
-                posted_msg = bot.send_document(STORAGE_CHANNEL_ID, file_id, caption=caption, reply_markup=channel_markup)
-        except Exception as channel_err:
-            logging.error(f"Channel Storage Error: {channel_err}")
-            pass
-
-        if posted_msg:
-            # البوت يسحب الرسالة من القناة ويحولها للطالب تلقائياً فوراُ
-            bot.forward_message(chat_id, STORAGE_CHANNEL_ID, posted_msg.message_id)
-            # إرسال لوحة التحكم المنفصلة لتظل رسالة الملف المروجة نظيفة
-            bot.send_message(chat_id, "⚙️ **خيارات وإدارة الملف:**", reply_markup=private_markup, parse_mode="Markdown")
-        else:
-            # نظام الحماية التبادلي: لو حدث خطأ في القناة، يرسل البوت بالطريقة الكلاسيكية لكي لا يتعطل مشروعك
-            private_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-            if file_type == 'text': 
-                bot.send_message(chat_id, res.get('content', res['name']), reply_markup=private_markup)
-            elif file_type == 'photo' and file_id: 
-                bot.send_photo(chat_id, file_id, caption=caption, reply_markup=private_markup)
-            elif file_id: 
-                bot.send_document(chat_id, file_id, caption=caption, reply_markup=private_markup)
+        if file_type == 'text': 
+            bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
+        elif file_type == 'photo' and file_id: 
+            bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+        elif file_id: 
+            bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
             
     except Exception as e: 
         logging.error(f"Send Error: {e}")
