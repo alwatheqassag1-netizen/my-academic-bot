@@ -526,29 +526,27 @@ def send_file_to_user(chat_id, res, has_perm):
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
-        # 1. الأزرار الإدارية للمشرفين داخل البوت (تختفي تلقائياً عند إعادة التحويل)
+        # 1. الأزرار الإدارية داخل البوت
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-        # أزرار التفاعل الجانبية للطلاب داخل البوت
         markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 2. استخراج اسم المجلد الحالي تلقائياً لبناء الزر الذكي (مثل المحفظة في الصورة)
+        # 2. استخراج اسم المجلد لإضافته كزر شفاف
         current_path_str = res.get('menu_path', '')
-        folder_button_name = "📂 عرض المقرر"  # الاسم الافتراضي
+        folder_name = "المقرر"
         if current_path_str:
-            path_parts = current_path_str.split(' > ')
-            folder_button_name = f"📁 {path_parts[-1]}"  # يقتبس الاسم الفعلي مثل (📁 ثقافة اسلامية)
+            folder_name = current_path_str.split(' > ')[-1] # يأخذ الاسم الأخير للمسار
+            
+        # 3. الزر الشفاف الذي سيصمد عند التحويل
+        markup.add(InlineKeyboardButton(f"📁 {folder_name}", url=deep_folder_url))
 
-        # 3. حقن الزر المعتمد على رابط url في سطر مستقل ليصمد عند عمل Forward للقنوات والجروبات
-        markup.add(InlineKeyboardButton(folder_button_name, url=deep_folder_url))
-
-        # 4. استكمال إعدادات الرسالة والإرسال الطبيعي للميديا
+        # 4. إعداد الرسالة بدون أي روابط نصية (نص نظيف)
         file_type, file_id, base_name = res.get('type', 'document'), res.get('file_id'), res.get('name', 'وثيقة')
         up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
         
@@ -558,6 +556,7 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = res.get('caption') or base_name
         caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
+        # 5. الإرسال
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
