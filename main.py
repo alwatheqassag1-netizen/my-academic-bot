@@ -891,14 +891,21 @@ def universal_handler(message):
             bot.send_message(chat_id, f"❌ حدث خطأ في جلب السجل: {e}")
         return
 
-    if text == "📈 إحصائيات النظام" and (is_owner(chat_id) or "stats" in get_admin_permissions(chat_id)):
+        if text == "📈 إحصائيات النظام" and (is_owner(chat_id) or "stats" in get_admin_permissions(chat_id)):
         all_u = list(users_col.find())
-        sm = f"📊 إجمالي المشتركين بالمنصة: {len(all_u)}\n"
-        for u in all_u: sm += f"• {u.get('first_name', '-')} | `{u.get('chat_id')}`\n"
+        sm = f"📊 إجمالي المشتركين بالمنصة: {len(all_u)}\n\n"
+        for u in all_u:
+            # تم إضافة اليوزر نيم هنا كما طلبت
+            name = u.get('first_name', '-')
+            uid = u.get('chat_id', '0')
+            uname = u.get('username', 'لا يوجد')
+            sm += f"• {name} | `{uid}` | @{uname}\n"
+            
         if len(sm) > 3800:
             bio = io.BytesIO(sm.encode('utf-8')); bio.name = "Users_Stats.txt"
             bot.send_document(chat_id, bio, caption="📊 كشف تفصيلي بالطلاب")
-        else: bot.send_message(chat_id, sm, parse_mode="Markdown")
+        else: 
+            bot.send_message(chat_id, sm, parse_mode="Markdown")
         return
 
     if text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين" and is_owner(chat_id):
