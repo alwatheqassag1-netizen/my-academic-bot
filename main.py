@@ -120,7 +120,7 @@ if settings_col.count_documents({"_id": "bot_general_settings"}) == 0:
     settings_col.insert_one({"_id": "bot_general_settings", "status": "active", "emergency_flags": {"ai": False, "upload": False, "search": False, "ads": False}})
 
 # ==========================================
-# 4. الهيكل الأكاديمي الديناميكي (Hybrid Structure)
+# 4. الهيكل الأكاديمي الديناميكي
 # ==========================================
 
 ACADEMIC_STRUCTURE_DEFAULT = {
@@ -173,7 +173,6 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "📖 دليل القسم": {}
 }
 
-# مزامنة الهيكل الجديد لضمان تحديث (الترم الثاني) ومجلداته في قاعدة البيانات فوراً
 db_struct = settings_col.find_one({"_id": "academic_structure"})
 term2_keys = db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).keys() if db_struct else []
 
@@ -198,7 +197,7 @@ app = Flask(__name__)
 BOT_USERNAME = bot.get_me().username
 
 # ==========================================
-# 5. دوال الصلاحيات المركزية (Roles System)
+# 5. دوال الصلاحيات المركزية
 # ==========================================
 
 def is_owner(chat_id): return chat_id == SUPER_ADMIN_ID
@@ -247,10 +246,8 @@ def reset_modes(chat_id, clear_upload=True):
     action_payload.pop(chat_id, None)
 
 def check_rate_limit(chat_id):
-    # ... كودك الحالي ...
     return True
 
-# ضع الدالة الجديدة هنا:
 def check_ai_quota(chat_id):
     if is_owner(chat_id): return True
     user = users_col.find_one({"chat_id": chat_id})
@@ -266,16 +263,14 @@ def check_ai_quota(chat_id):
     return False
 
 # ==========================================
-# 6. نظام الذكاء الاصطناعي (مُحسّن بالسياق)
+# 6. نظام الذكاء الاصطناعي
 # ==========================================
 
 def get_ai_response(prompt, chat_id):
-    # 1. سجل المحادثة (السياق) - خاص بكل طلب
     history = ai_memory.get(chat_id, [])
     contents = [{"role": "user", "parts": [{"text": h['prompt']}]} if i % 2 == 0 else {"role": "model", "parts": [{"text": h['response']}]} for i, h in enumerate(history)]
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # --- الخدمة الأولى: Gemini API (منفصلة تماماً) ---
     if GEMINI_API_KEY and not GEMINI_API_KEY.startswith("AIzaSy"):
         for model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
@@ -285,25 +280,19 @@ def get_ai_response(prompt, chat_id):
                 )
                 if response.status_code == 200:
                     ans = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-                    return ans # نجاح الخدمة الأولى
+                    return ans
             except Exception:
-                pass # تجاهل الخطأ والمتابعة للخدمة التالية
+                pass
 
-    # --- الخدمة الثانية: OpenAI via Pollinations (منفصلة تماماً) ---
     try:
         response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=openai&seed=42", timeout=12)
-        if response.status_code == 200 and response.text:
-            return response.text.strip()
-    except Exception:
-        pass
+        if response.status_code == 200 and response.text: return response.text.strip()
+    except Exception: pass
 
-    # --- الخدمة الثالثة: Mistral via Pollinations (منفصلة تماماً) ---
     try:
         response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=mistral&seed=42", timeout=12)
-        if response.status_code == 200 and response.text:
-            return response.text.strip()
-    except Exception:
-        pass
+        if response.status_code == 200 and response.text: return response.text.strip()
+    except Exception: pass
 
     return "🤖 نعتذر، تعذر الوصول إلى جميع خوادم الذكاء الاصطناعي في هذه اللحظة."
 
@@ -414,20 +403,14 @@ def show_menu(chat_id):
     if mode == "navigate_to_assign":
         markup.add(KeyboardButton("✅ تعيين مشرف لهذا القسم"), KeyboardButton("🛑 إلغاء الأمر"))
 
-    # [1] الصفحة الرئيسية
     if not path:
-        for key in global_academic_structure.keys():
-            markup.add(KeyboardButton(key))
+        for key in global_academic_structure.keys(): markup.add(KeyboardButton(key))
         markup.add(KeyboardButton("🌟 ميزات الطالب"), KeyboardButton("📞 التواصل مع المشرف العام"))
-        if is_owner(chat_id) and not testing_mode.get(chat_id):
-            markup.add(KeyboardButton("👑 لوحة المشرف الرئيسي"))
-        if is_admin(chat_id) and not is_owner(chat_id) and not testing_mode.get(chat_id):
-            markup.add(KeyboardButton("🛡️ لوحة المشرف العام"))
-        if is_admin(chat_id) or is_moderator(chat_id):
-            markup.add(KeyboardButton("🛑 إنهاء العرض كمستخدم" if testing_mode.get(chat_id) else "👤 عرض كمستخدم"))
+        if is_owner(chat_id) and not testing_mode.get(chat_id): markup.add(KeyboardButton("👑 لوحة المشرف الرئيسي"))
+        if is_admin(chat_id) and not is_owner(chat_id) and not testing_mode.get(chat_id): markup.add(KeyboardButton("🛡️ لوحة المشرف العام"))
+        if is_admin(chat_id) or is_moderator(chat_id): markup.add(KeyboardButton("🛑 إنهاء العرض كمستخدم" if testing_mode.get(chat_id) else "👤 عرض كمستخدم"))
         bot.send_message(chat_id, "⚙️ القائمة الرئيسية:", reply_markup=markup); return
 
-    # [2] اللوحات الإدارية
     if path_str == "SUPER_ADMIN_PANEL":
         markup.add("👥 إدارة المشرفين", "🔑 صلاحيات المشرفين")
         markup.add("📈 إحصائيات النظام", "📊 حالة النظام")
@@ -460,7 +443,6 @@ def show_menu(chat_id):
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "🛡️ *لوحة المشرف العام:*", reply_markup=markup, parse_mode="Markdown"); return
 
-    # [3] الأقسام الخاصة بالطالب
     if path_str == "STUDENT_FEATURES":
         markup.add("🤖 المساعد الذكي (AI)", "🔍 بحث عن ملف")
         markup.add("🔥 الملفات الأكثر شعبية", "🆕 تحديثات اليوم")
@@ -473,8 +455,7 @@ def show_menu(chat_id):
         favs = u_data.get("favorites", []) if u_data else []
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         for fav_id in favs:
-            if fav_id.startswith("path:"):
-                markup.add(KeyboardButton(f"📁 {fav_id.replace('path:', '')}"))
+            if fav_id.startswith("path:"): markup.add(KeyboardButton(f"📁 {fav_id.replace('path:', '')}"))
         bot.send_message(chat_id, "⭐ *ملفاتك وأقسامك المفضلة:*", reply_markup=markup, parse_mode="Markdown")
         for fav_id in favs:
             if not fav_id.startswith("path:"):
@@ -483,15 +464,11 @@ def show_menu(chat_id):
         if not favs: bot.send_message(chat_id, "لا توجد ملفات أو أقسام في المفضلة.")
         return
 
-    # [4] الأقسام والمجلدات الفعلية
     if isinstance(current_menu, dict):
         for key in current_menu.keys(): markup.add(KeyboardButton(key))
             
-    # زر اللجنة العلمية يظهر حصرياً داخل مستوى أول
-    if path_str == "🌱 مستوى أول":
-        markup.add(KeyboardButton("اللجنة العلمية"))
+    if path_str == "🌱 مستوى أول": markup.add(KeyboardButton("اللجنة العلمية"))
 
-    # استدعاء المجلدات الديناميكية للمسار الحالي (مهم جداً لتشغيل مجلدات المشرفين)
     for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
         markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
         
@@ -499,140 +476,50 @@ def show_menu(chat_id):
         icon = "📌" if db_file.get("type") == "text" else "🖼️" if db_file.get("type") == "photo" else "📄"
         markup.add(KeyboardButton(f"{icon} {db_file['name']}"))
         
-    # أزرار التنقل السفلية
     if path: 
         if len(path) == 1: markup.add("🔙 الرجوع للقائمة الرئيسية")
         else: markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
         
-    # الصلاحيات داخل المسار (للمشرفين)
-    # الصلاحيات داخل المسار (للمشرفين)
     if is_moderator(chat_id, path_str):
         markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
-        if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
+        if current_menu is None or len(path) > 0: 
             markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
             markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
-    # تم حذف الـ else الخاصة بـ "مساهمة بملف" بنجاح لحماية ونظافة الكود
     
     if not is_owner(chat_id) or testing_mode.get(chat_id):
         if path_str: markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
             
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
+# ==========================================
+# دالة إرسال الملفات السليمة والخالية من الأخطاء
+# ==========================================
+
 def send_file_to_user(chat_id, res, has_perm):
-    try:
-        if not res: return
-        file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        
-        # رابط سيرفر ريندر الخاص بك لإعادة التوجيه الذكي
-        deep_folder_url = f"https://academic-bot-iyuy.onrender.com/f/{file_id_str}"
-
-        # =========================================================
-        # 1. تثبيت آيدي قناة الأرشيف الوسيطة الخاصة بك
-        # =========================================================
-        STORAGE_CHANNEL_ID = -1003769719318  # آيدي قناتك الفعلي @AIDSFILE
-
-        # =========================================================
-        # 2. خوارزمية صياغة اسم الزر (القسم - المقرر) الشفاف
-        # =========================================================
-        channel_markup = InlineKeyboardMarkup(row_width=1)
-        path_str = res.get('menu_path', '')
-        btn_name = "📁 المجلد الرئيسي" 
-        
-        if path_str:
-            parts = path_str.split(' > ')
-            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
-
-            if len(clean_parts) >= 2:
-                section = clean_parts[-1]
-                course = clean_parts[-2]
-                if "نماذج" in section: section = "نماذج"
-                if "محاضرات" in section: section = "محاضرات"
-                if "ملخصات" in section: section = "ملخصات"
-                btn_name = f"📁 {section} - {course}"
-            elif len(clean_parts) == 1:
-                btn_name = f"📁 {clean_parts[0]}"
-
-        # ربط الزر برابط الـ Flask الملعوب لحمايته ومضاعفة قوته
-        channel_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-
-        # =========================================================
-        # 3. تجهيز أزرار الإدارة والتحكم (تظهر للطالب بشكل منفصل)
-        # =========================================================
-def send_file_to_user(chat_id, res, has_perm):
-    try:
-        if not res: return
-        markup = InlineKeyboardMarkup(row_width=2)
-        file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        
-        # =========================================================
-        # 🚀 الهندسة الذكية: الرابط الملتوي المضمون للصمود بدون قناة وبدون نوافذ تأكيد
-        # =========================================================
-        bypass_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}&text=📥 اضغط على الزر بالأسفل لفتح المجلد الأكاديمي فوراً 👇"
-
-        # 1. أزرار التحكم للمشرفين (تظهر داخل البوت بشكل طبيعي)
-        if has_perm and not testing_mode.get(chat_id):
-            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
-            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-def send_file_to_user(chat_id, res, has_perm):
-    try:
-        if not res: return
-        markup = InlineKeyboardMarkup(row_width=2)
-        file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        
-        # =========================================================
-        # 🚀 الهندسة الذكية: الرابط الملتوي المضمون للصمود بدون قناة وبدون نوافذ تأكيد تافهة
-        # =========================================================
-        bypass_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}&text=📥 اضغط على الزر بالأسفل لفتح المجلد الأكاديمي فوراً 👇"
-
-        # 1. أزرار التحكم للمشرفين (تظهر داخل البوت وتختفي عند التحويل تلقائياً)
-        if has_perm and not testing_mode.get(chat_id):
-            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
-            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-            markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
-            markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-        # 2. أزرار الطلاب والتفاعل
-        markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
-        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
-        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
-
-        # 3. خوارزمية تسمية الزر الاحترافية الفاهمة (القسم - المقرر)
-        path_str = res.get('menu_path', '')
-        btn_name = "📁 المجلد الرئيسي" 
-        
-        if path_str:
-            parts = path_str.split(' > ')
-            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
-            if len(clean_parts) >= 2:
-                section = clean_parts[-1]
-                coursedef send_file_to_user(chat_id, res, has_perm):
     if not res: 
         return
         
     file_id_str = str(res['_id'])
     share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
     
-    # 🚀 الهندسة الذكية: الرابط الملتوي المضمون للصمود بدون قناة وبدون نوافذ تأكيد تافهة
+    # الرابط الملتوي لتخطي النوافذ المزعجة وبقاء الزر عند التحويل
     bypass_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}&text=📥 اضغط على الزر بالأسفل لفتح المجلد الأكاديمي فوراً 👇"
 
     markup = InlineKeyboardMarkup(row_width=2)
     
-    # 1. أزرار التحكم للمشرفين
+    # 1. أزرار المشرفين
     if has_perm and not testing_mode.get(chat_id):
         markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
         markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
         markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
         markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
         
-    # 2. أزرار الطلاب والتفاعل
+    # 2. أزرار التفاعل والمشاركة
     markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
     markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
     markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-    # 3. خوارزمية تسمية الزر الاحترافية (القسم - المقرر)
+    # 3. اسم الزر الشفاف للمقرر
     path_str = res.get('menu_path', '')
     btn_name = "📁 المجلد الرئيسي" 
     
@@ -649,10 +536,9 @@ def send_file_to_user(chat_id, res, has_perm):
         elif len(clean_parts) == 1:
             btn_name = f"📁 {clean_parts[0]}"
 
-    # 4. إضافة زر المجلد الملتوي السريع
     markup.add(InlineKeyboardButton(btn_name, url=bypass_url))
 
-    # 5. بناء وإرسال الملف
+    # 4. إرسال الملف
     file_type = res.get('type', 'document')
     file_id = res.get('file_id')
     base_name = res.get('name', 'وثيقة')
@@ -666,49 +552,12 @@ def send_file_to_user(chat_id, res, has_perm):
         
     caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
-    if file_type == 'text': 
-        bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
-    elif file_type == 'photo' and file_id: 
-        bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
-    elif file_id: 
-        bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
-
-
-      
-        markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url), InlineKeyboardButton("📂 عرض المقرر", url=deep_folder_url))
-        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
-        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
-
-        file_type, file_id, base_name = res.get('type', 'document'), res.get('file_id'), res.get('name', 'وثيقة')
-        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-        
-        ratings = list(ratings_col.find({"file_id": file_id_str}))
-        avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
-        
-        # --- التطوير المضمون: دمج روابط الانتقال داخل نص الشرح لحمايتها عند إعادة التحويل (Forward) ---
-        # نستخدم Markdown V2 أو HTML لتنسيق النصوص والروابط بشكل احترافي
-        custom_caption = (
-            f"📄 *{base_name}*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10\n\n"
-            f"🔗 [📂 فتح المقرر في المجلد]({deep_folder_url})\n"
-            f"📥 [⚡ تحميل وتصفح الملف مباشرة]({bot_link})"
-        )
-
-        # إرسال الملف بناءً على نوعه مع تفعيل صيغة Markdown لتشغيل الروابط النصية
-        if file_type == 'text': 
-            # بالنسبة للنصوص نرسل الرابط بأسفل الرسالة النصية
-            text_content = res.get('content', res['name'])
-            text_content += f"\n\n🔗 [📂 فتح المقرر في المجلد]({deep_folder_url})\n📥 [⚡ تحميل الملف]({bot_link})"
-            bot.send_message(chat_id, text_content, reply_markup=markup, parse_mode="Markdown")
-        elif file_type == 'photo' and file_id: 
-            bot.send_photo(chat_id, file_id, caption=custom_caption, reply_markup=markup, parse_mode="Markdown")
-        elif file_id: 
-            bot.send_document(chat_id, file_id, caption=custom_caption, reply_markup=markup, parse_mode="Markdown")
-            
-    except Exception as e: 
-        logging.error(f"Send Error: {e}")
-
+    try:
+        if file_type == 'text': bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
+        elif file_type == 'photo' and file_id: bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+        elif file_id: bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Send File Error: {e}")
 
 # ==========================================
 # 10. المعالج المركزي (Router)
@@ -718,15 +567,12 @@ def send_file_to_user(chat_id, res, has_perm):
 def universal_handler(message):
     chat_id = message.chat.id
     
-    # 1. جلب الإعدادات فوراً لفحص حالة البوت قبل معالجة أي طلب
     settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     
-    # 2. الطرد الفوري والصارم للمستخدمين العاديين إذا كان البوت متوقفاً (مع استثناء الإدارة)
     if settings.get("status") == "inactive" and not is_admin(chat_id):
         bot.send_message(chat_id, "🚧 المنصة الأكاديمية تحت الصيانة الدورية حالياً. نعود إليكم فور الانتهاء قريباً.")
-        return  # قطع فوري يمنع تنفيذ أي سطر بالأسفل ويحمي السيرفر
+        return 
         
-    # 3. إعفاء تام للملفات والوسائط من الـ Rate Limit لتجنب ضياع الحزم (Batch Fix)
     if message.content_type == 'text':
         if not check_rate_limit(chat_id): return
         
@@ -743,7 +589,6 @@ def universal_handler(message):
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id); bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية."); show_menu(chat_id); return
 
-    # [ملاحة العرض كمستخدم]
     if text == "👤 عرض كمستخدم" and (is_admin(chat_id) or is_moderator(chat_id)):
         reset_modes(chat_id); testing_mode[chat_id] = True; user_path[chat_id] = []
         bot.send_message(chat_id, "👀 وضع الطالب مفعل: أنت الآن تتصفح المنصة كطالب عادي بدون أي صلاحيات إدارية.")
@@ -754,16 +599,13 @@ def universal_handler(message):
         bot.send_message(chat_id, "💼 تم إنهاء وضع الطالب، عدت الآن للإدارة.")
         show_menu(chat_id); return
 
-    # [اللجنة العلمية الديناميكية - كزر نصي وليس مجلداً]
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
-    # [ملاحة القوائم المباشرة والديناميكية]
     main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
-    # التقاط مجلدات الهيكل الأكاديمي التي ليست في الرئيسية
     if text not in main_nav and isinstance(current_menu, dict) and text in current_menu.keys():
         if mode not in ["navigate_to_assign", "move_file_dest"]: reset_modes(chat_id)
         user_path[chat_id].append(text)
@@ -794,14 +636,12 @@ def universal_handler(message):
             bot.send_message(chat_id, dev_msg, reply_markup=markup, parse_mode="Markdown"); return
         show_menu(chat_id); return
 
-    # [إضافة المسار للمفضلة]
     if text == "⭐ إضافة هذا القسم للمفضلة":
         if path_str:
             users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": "path:" + path_str}})
             bot.send_message(chat_id, "✅ تم إضافة القسم للمفضلة بنجاح.")
         return
 
-    # [الرفع الذكي الدفعي للمشرفين والطلاب بمهلة موسعة]
     if message.content_type in ['document', 'photo', 'video', 'audio'] and upload_mode.get(chat_id):
         if settings.get("emergency_flags", {}).get("upload", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 عذراً، استقبال الملفات معطل حالياً للصيانة."); return
@@ -813,9 +653,6 @@ def universal_handler(message):
         upload_timers[chat_id].start()
         return
 
-    if settings.get("status") == "inactive" and not is_admin(chat_id):
-        bot.send_message(chat_id, "🚧 المنصة تحت الصيانة. نعود قريباً."); return
-
     if text == "📦 أنقل إلى هذا القسم" and mode == "move_file_dest":
         f_id = action_payload.get(chat_id)
         if f_id:
@@ -823,12 +660,11 @@ def universal_handler(message):
             log_action(chat_id, "MOVE_FILE", f"Moved to {path_str}")
         bot.send_message(chat_id, "✅ تم تنفيذ النقل بنجاح."); reset_modes(chat_id); show_menu(chat_id); return
 
-    # [العمليات الإدارية للأدمن الرئيسي والعام]
     if text == "➕ إضافة مشرف عام" and is_owner(chat_id):
         reset_modes(chat_id); admin_action_mode[chat_id] = "add_glb"
         bot.send_message(chat_id, "أرسل المعرف الرقمي (ID) للمشرف:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
 
-    if text == "➕ إضافة مشرف مخصص لمسار" or text == "🛠 إدارة المشرف المخصص" and is_owner(chat_id):
+    if (text == "➕ إضافة مشرف مخصص لمسار" or text == "🛠 إدارة المشرف المخصص") and is_owner(chat_id):
         reset_modes(chat_id); admin_action_mode[chat_id] = "navigate_to_assign"; user_path[chat_id] = []
         bot.send_message(chat_id, "📍 يرجى تصفح الأقسام للوصول للمقرر المطلوب، ثم اضغط (✅ تعيين مشرف لهذا القسم)."); show_menu(chat_id); return
 
@@ -990,7 +826,6 @@ def universal_handler(message):
         if settings.get("emergency_flags", {}).get("ai", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 المساعد الذكي معطل مؤقتاً للصيانة."); return
         
-        # --- إضافة التحقق من الكوتا هنا ---
         if not check_ai_quota(chat_id):
             bot.send_message(chat_id, "⚠️ لقد استنفدت محاولاتك اليومية (7/7). سيتم تجديدها تلقائياً غداً.")
             return
@@ -1046,7 +881,6 @@ def universal_handler(message):
         bot.send_message(chat_id, f"👥 إجمالي المستخدمين المسجلين: {users_col.count_documents({})}")
         return
 
-    # [أدوات المشرف الرئيسي والعام مع المعالجة الكاملة]
     if text == "📊 حالة النظام" and is_admin(chat_id):
         try:
             u_c, f_c, d_c = users_col.count_documents({}), files_col.count_documents({}), folders_col.count_documents({})
@@ -1108,7 +942,7 @@ def universal_handler(message):
             bot.send_message(chat_id, sm, parse_mode="Markdown")
         return
 
-    if text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين" and is_owner(chat_id):
+    if (text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين") and is_owner(chat_id):
         logs = list(action_logs_col.aggregate([{"$group": {"_id": "$admin_name", "count": {"$sum": 1}}}]))
         msg = "📊 *إحصائيات نشاط المشرفين:*\n"
         for l in logs: msg += f"• {l['_id']}: {l['count']} إجراء مسجل\n"
@@ -1143,13 +977,7 @@ def universal_handler(message):
         log_action(chat_id, "BOT_TOGGLE", f"Set bot status to {new_status}")
         bot.send_message(chat_id, f"✅ تم {'إيقاف' if new_status == 'inactive' else 'تشغيل'} البوت بنجاح."); show_menu(chat_id); return
 
-    # [العمليات الإدارية داخل الأقسام الديناميكية والمجلدات]
-    # تم تنظيف هذا الجزء بإزالة "مساهمة بملف"
     if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS"]:
-        
-        # هنا كان يوجد كود مساهمة بملف، تم حذفه بالكامل للحفاظ على نظافة الكود.
-        
-        # إذا كان لديك أوامر أخرى هنا (مثل إضافة ملف للمشرفين)، ستظل تعمل بشكل طبيعي.
         if is_mod:
             if text == "➕ إضافة ملف/نص":
                 reset_modes(chat_id); upload_mode[chat_id] = True
@@ -1181,15 +1009,12 @@ def universal_handler(message):
         parent_p = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
         new_name = text.strip()
         
-        # 1. تحديث الاسم في الهيكل الديناميكي إن وجد
         renamed_in_struct = rename_in_structure(global_academic_structure, old_name, new_name)
         if renamed_in_struct:
             settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": global_academic_structure}})
             
-        # 2. تحديثه في المجلدات الديناميكية الإضافية
         folders_col.update_one({"parent_path": parent_p, "folder_name": old_name}, {"$set": {"folder_name": new_name}})
         
-        # 3. تحديث مسار الملفات التابعة (Recursive Update)
         old_f = f"{parent_p} > {old_name}" if parent_p else old_name
         new_f = f"{parent_p} > {new_name}" if parent_p else new_name
         
@@ -1223,7 +1048,6 @@ def universal_handler(message):
         files_col.insert_one({"menu_path": path_str, "name": text[:60].strip(), "type": "text", "content": text, "downloads": 0, "upload_date": datetime.utcnow(), "sort_order": 0})
         bot.send_message(chat_id, "✅ تم حفظ التلخيص النصي بنجاح."); return
 
-    # [الاستماع للمجلدات المضافة يدوياً - لمعالجة المجلدات الديناميكية]
     if text.startswith("📁 ") and " > " in text:
         user_path[chat_id] = text.replace("📁 ", "").strip().split(" > ")
         show_menu(chat_id); return
@@ -1231,7 +1055,6 @@ def universal_handler(message):
         user_path[chat_id].append(text.replace("📁 ", "").strip())
         show_menu(chat_id); return
         
-    # [فتح الملفات]
     if text and (text.startswith("📄 ") or text.startswith("📌 ") or text.startswith("🖼️ ")):
         ex_name = text.replace("📄 ", "").replace("📌 ", "").replace("🖼️ ", "").strip()
         f_doc = files_col.find_one({"menu_path": path_str, "name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
@@ -1312,16 +1135,11 @@ def webhook_listen_route():
 @app.route("/")
 def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
 
-# ==========================================
-# 🕵️‍♂️ الخدعة السرية لكسر حظر تليجرام عند التحويل
-# ==========================================
 from flask import redirect
 
 @app.route('/f/<folder_id>')
 def redirect_to_folder(folder_id):
-    # الخادم يمسك الطلب الخارجي فوراً ويحوله لفتح المجلد داخل تطبيق تليجرام
     return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
-# ==========================================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
