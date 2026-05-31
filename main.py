@@ -575,6 +575,22 @@ def send_file_to_user(chat_id, res, has_perm):
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
+def send_file_to_user(chat_id, res, has_perm):
+    try:
+        if not res: return
+        markup = InlineKeyboardMarkup(row_width=2)
+        file_id_str = str(res['_id'])
+        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
+        
+        # =========================================================
+        # 🚀 الهندسة الذكية: الرابط الملتوي المضمون للصمود بدون قناة وبدون نوافذ تأكيد تافهة
+        # =========================================================
+        bypass_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}&text=📥 اضغط على الزر بالأسفل لفتح المجلد الأكاديمي فوراً 👇"
+
+        # 1. أزرار التحكم للمشرفين (تظهر داخل البوت وتختفي عند التحويل تلقائياً)
+        if has_perm and not testing_mode.get(chat_id):
+            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
+            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
@@ -583,7 +599,7 @@ def send_file_to_user(chat_id, res, has_perm):
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. خوارزمية تسمية الزر الاحترافية (القسم - المقرر)
+        # 3. خوارزمية تسمية الزر الاحترافية الفاهمة (القسم - المقرر)
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         
@@ -603,7 +619,7 @@ def send_file_to_user(chat_id, res, has_perm):
         # 4. إضافة زر المجلد السحري الذي يحمل الرابط الملتوي في سطر مستقل أسفل الملف
         markup.add(InlineKeyboardButton(btn_name, url=bypass_url))
 
-        # 5. بناء وإرسال الملف بشكل مباشر ونظيف جداً
+        # 5. بناء وإرسال الملف بشكل مباشر ونظيف جداً وبأعلى استقرار
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
