@@ -258,7 +258,7 @@ def check_ai_quota(chat_id):
         users_col.update_one({"chat_id": chat_id}, {"$set": {"ai_count": 1, "ai_reset_time": now}}, upsert=True)
         return True
     if user.get("ai_count", 0) < 7:
-        users_col.update_one{"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
+        users_col.update_one({"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
         return True
     return False
 
@@ -494,35 +494,31 @@ def show_menu(chat_id):
             
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
-# ==========================================
-# دالة إرسال واجهة الملف النظيفة للمستقبل
-# ==========================================
+# =========================================================
+# دالة إرسال واجهة المستند والملف الأصلي (موزونة المحاذاة)
+# =========================================================
 
 def send_file_to_user(chat_id, res, has_perm):
     try:
-        if not res: return
+        if not res: 
+            return
         file_id_str = str(res['_id'])
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
         markup = InlineKeyboardMarkup(row_width=2)
 
-        # 1. أزرار التحكم والإدارة الحصرية للمشرفين (تختفي عند الطالب العادي)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-            # زر النشر الذكي في الجروبات للمشرفين
             markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query_chosen_chat=f"pub_{file_id_str}"))
 
-        # 2. أزرار الطلاب والتفاعل العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. صياغة اسم الزر الشفاف للمجلد (القسم - المقرر) بناءً على قاعدة البيانات
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         if path_str:
@@ -538,10 +534,8 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        # إدراج زر المجلد الشفاف
         markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
-        # 4. استخراج البيانات والـ Caption الخاص بالملف من الـ MongoDB
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -556,7 +550,6 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
         caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
-        # 5. 🔥 التنفيذ الفوري الحاسم: إرسال الملف الحقيقي للطالب بناءً على نوعه الأصلي
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
@@ -1130,7 +1123,7 @@ def handle_inline_callbacks(call):
         bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False); show_menu(chat_id)
 
 # =========================================================
-# 12. محرك النشر الفوري داخل الجروبات المصلح (Inline Handler)
+# 12. محرك النشر في المجموعات (Inline Handler)
 # =========================================================
 
 @bot.inline_handler(func=lambda query: query.query.startswith('file_'))
@@ -1199,6 +1192,29 @@ def handle_admin_inline_share(query):
     except Exception as e:
         logging.error(f"Inline Share Error: {e}")
 
+# =========================================================
+# 13. محرك قذف الملفات داخل المجموعات المفتوحة للمشرفين
+# =========================================================
+
+@bot.chosen_inline_handler(func=lambda chosen_inline_result: chosen_inline_result.result_id.startswith('pub_'))
+def handle_chosen_admin_share(chosen_inline_result):
+    try:
+        admin_id = chosen_inline_result.from_user.id
+        if not is_moderator(admin_id): return
+
+        file_id_str = chosen_inline_result.result_id.split('_', 1)[1]
+        res = files_col.find_one({"_id": ObjectId(file_id_str)})
+        if not res: return
+
+        target_chat_id = chosen_inline_result.inline_message_id 
+        if not target_chat_id and chosen_inline_result.query:
+            target_chat_id = chosen_inline_result.from_user.id 
+
+        send_file_to_user(target_chat_id, res, has_perm=True)
+        log_action(admin_id, "DIRECT_GROUP_SHARE", f"Shared file {res.get('name')} to chat")
+    except Exception as e:
+        logging.error(f"Chosen Share Error: {e}")
+
 # ==========================================
 # 14. تشغيل السيرفر وإدارة الـ Webhook بأمان
 # ==========================================
@@ -1213,16 +1229,14 @@ def webhook_listen_route():
     return "Invalid", 403
 
 @app.route("/")
-def index_home_route(): 
-    return "Bot V5.7 LMS Master Active & Running 🚀", 200
+def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
 
 @app.route('/f/<folder_id>')
 def redirect_to_folder(folder_id):
     return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
 
-# دالة ذكية تعمل في الخلفية لربط الـ Webhook دون تعطيل إقلاع Render
 def init_webhook_safely():
-    time.sleep(3) # ننتظر 3 ثوانٍ كاملة حتى يقلع Flask أولاً ويفتح المنفذ
+    time.sleep(3)
     try:
         bot.remove_webhook()
         bot.set_webhook(url="https://academic-bot-iyuy.onrender.com/webhook")
@@ -1231,8 +1245,5 @@ def init_webhook_safely():
         logging.error(f"Webhook Thread Error: {e}")
 
 if __name__ == "__main__":
-    # تشغيل خيط الخلفية الآمن لتثبيت الـ Webhook دون قفل السيرفر
     threading.Thread(target=init_webhook_safely, daemon=True).start()
-    
-    # إقلاع السيرفر الفوري على المنفذ المطلوب
     app.run(host="0.0.0.0", port=5000)
