@@ -134,7 +134,7 @@ ACADEMIC_STRUCTURE_DEFAULT = {
             "مقدمة في علوم البيانات 📊": {},
             "برمجة الحاسوب 🖥️": {},
             "رياضيات متقطعة": {},
-            "📁 تفاصيل الاختبارات النهائية ♨️ -": {}
+            "📁 تفاصيل الاختبارات النهائية ♨️": {}
         }
     },
     "🌿 مستوى ثاني": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
@@ -143,9 +143,9 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "📖 دليل القسم": {}
 }
 
-# مزامنة الهيكل الجديد لضمان تحديث (دليل القسم) و (ترم ثاني) في قاعدة البيانات فوراً
+# المزامنة التلقائية لضمان تفعيل هيكل الترم الثاني بدون شرطة أو إضافات
 db_struct = settings_col.find_one({"_id": "academic_structure"})
-if not db_struct or "📖 دليل القسم" not in db_struct.get("data", {}):
+if not db_struct or "📁 تفاصيل الاختبارات النهائية ♨️" not in db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}):
     settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": ACADEMIC_STRUCTURE_DEFAULT}}, upsert=True)
     global_academic_structure = ACADEMIC_STRUCTURE_DEFAULT
 else:
@@ -495,7 +495,11 @@ def send_file_to_user(chat_id, res, has_perm):
 @bot.message_handler(content_types=['text', 'document', 'photo', 'video', 'audio'])
 def universal_handler(message):
     chat_id = message.chat.id
-    if not check_rate_limit(chat_id): return
+    
+    # إعفاء الملفات من الـ rate limit لتجنب ضياعها عند التحويل دفعة واحدة (Batch Upload Fix)
+    if message.content_type == 'text':
+        if not check_rate_limit(chat_id): return
+        
     global system_stats; system_stats["requests_24h"] += 1
 
     user_data = users_col.find_one({"chat_id": chat_id})
@@ -510,12 +514,23 @@ def universal_handler(message):
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id); bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية."); show_menu(chat_id); return
 
+    # [ملاحة العرض كمستخدم]
+    if text == "👤 عرض كمستخدم" and (is_admin(chat_id) or is_moderator(chat_id)):
+        reset_modes(chat_id); testing_mode[chat_id] = True; user_path[chat_id] = []
+        bot.send_message(chat_id, "👀 وضع الطالب مفعل: أنت الآن تتصفح المنصة كطالب عادي بدون أي صلاحيات إدارية.")
+        show_menu(chat_id); return
+
+    if text == "🛑 إنهاء العرض كمستخدم" and testing_mode.get(chat_id):
+        reset_modes(chat_id); testing_mode[chat_id] = False; user_path[chat_id] = []
+        bot.send_message(chat_id, "💼 تم إنهاء وضع الطالب، عدت الآن للإدارة.")
+        show_menu(chat_id); return
+
     # [اللجنة العلمية الديناميكية - كزر نصي وليس مجلداً]
     if text == "اللجنة العلمية":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
     # [ملاحة القوائم المباشرة والديناميكية]
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين"] + list(global_academic_structure.keys())
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
@@ -788,6 +803,14 @@ def universal_handler(message):
             for r in rec: send_file_to_user(chat_id, r, False)
         else: bot.send_message(chat_id, "لا توجد ملفات حديثة مضافة خلال 24 ساعة."); return
 
+    if text == "📡 إدارة القنوات والمجموعات" and (is_owner(chat_id) or "channels_mgt" in get_admin_permissions(chat_id)):
+        bot.send_message(chat_id, "📡 تم تخصيص هذا القسم لربط القنوات والمجموعات الأكاديمية.\n*(جاري تفعيل الـ API للربط قريباً)*")
+        return
+        
+    if text == "👥 إدارة المستخدمين" and (is_owner(chat_id) or "users_mgt" in get_admin_permissions(chat_id)):
+        bot.send_message(chat_id, f"👥 إجمالي المستخدمين المسجلين: {users_col.count_documents({})}")
+        return
+
     # [أدوات المشرف الرئيسي والعام مع المعالجة الكاملة]
     if text == "📊 حالة النظام" and is_admin(chat_id):
         try:
@@ -1044,7 +1067,7 @@ def webhook_listen_route():
     return "Invalid", 403
 
 @app.route("/")
-def index_home_route(): return "Bot V5.5 LMS Master Active & Running 🚀", 200
+def index_home_route(): return "Bot V5.6 LMS Master Active & Running 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
