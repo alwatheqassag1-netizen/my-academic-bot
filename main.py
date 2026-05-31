@@ -499,14 +499,10 @@ def send_file_to_user(chat_id, res, has_perm):
         if not res: return
         file_id_str = str(res['_id'])
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        
-        # 🚀 الرابط الداخلي النقي (ينقل للبوت مباشرة وبلمحة عين بدون متصفح خارجي)
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
-        # 1. تثبيت آيدي قناة الأرشيف الوسيطة (التي تضمن صمود الزر عند التحويل)
         STORAGE_CHANNEL_ID = -1003769719318 
 
-        # 2. بناء اسم الزر الشفاف (القسم - المقرر)
         channel_markup = InlineKeyboardMarkup(row_width=1)
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
@@ -524,10 +520,8 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        # ربط الزر بالرابط الداخلي المباشر المضمون
         channel_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
-        # 3. تجهيز أزرار الإدارة والتفاعل (سترسل في رسالة منفصلة للطالب داخل البوت)
         private_markup = InlineKeyboardMarkup(row_width=2)
         if has_perm and not testing_mode.get(chat_id):
             private_markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
@@ -539,7 +533,6 @@ def send_file_to_user(chat_id, res, has_perm):
         private_markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         private_markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 4. إعداد بيانات الملف والوصف
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -553,7 +546,6 @@ def send_file_to_user(chat_id, res, has_perm):
             
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
-        # 5. التنفيذ: النشر في القناة أولاً
         posted_msg = None
         try:
             if file_type == 'text': posted_msg = bot.send_message(STORAGE_CHANNEL_ID, res.get('content', res['name']), reply_markup=channel_markup)
@@ -562,6 +554,18 @@ def send_file_to_user(chat_id, res, has_perm):
         except Exception as channel_err:
             logging.error(f"Channel Storage Error: {channel_err}")
             pass
+
+        if posted_msg:
+            bot.forward_message(chat_id, STORAGE_CHANNEL_ID, posted_msg.message_id)
+            bot.send_message(chat_id, "⚙️ *خيارات وإدارة الملف:*", reply_markup=private_markup, parse_mode="Markdown")
+        else:
+            private_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
+            if file_type == 'text': bot.send_message(chat_id, res.get('content', res['name']), reply_markup=private_markup)
+            elif file_type == 'photo' and file_id: bot.send_photo(chat_id, file_id, caption=caption, reply_markup=private_markup)
+            elif file_id: bot.send_document(chat_id, file_id, caption=caption, reply_markup=private_markup)
+            
+    except Exception as e: 
+        logging.error(f"Send Error: {e}")
 
 
 # ==========================================
