@@ -526,7 +526,7 @@ def send_file_to_user(chat_id, res, has_perm):
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
-        # 1. الأزرار الإدارية داخل البوت
+        # 1. الأزرار الإدارية داخل البوت للمشرفين (تختفي عند التحويل تلقائياً)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
@@ -537,16 +537,30 @@ def send_file_to_user(chat_id, res, has_perm):
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 2. استخراج اسم المجلد لإضافته كزر شفاف
+        # 2. الخوارزمية الذكية لاستخراج (نوع القسم + اسم المقرر) ديناميكياً
         current_path_str = res.get('menu_path', '')
-        folder_name = "المقرر"
+        folder_button_name = "📂 عرض المجلد الرئيسي" # اسم احتياطي لو انعدم المسار
+        
         if current_path_str:
-            folder_name = current_path_str.split(' > ')[-1] # يأخذ الاسم الأخير للمسار
-            
-        # 3. الزر الشفاف الذي سيصمد عند التحويل
-        markup.add(InlineKeyboardButton(f"📁 {folder_name}", url=deep_folder_url))
+            path_parts = current_path_str.split(' > ')
+            # إذا كان المسار يحتوي على تفاصيل كافية (مثال: مستوى أول > ترم ثاني > ثقافة اسلامية > محاضرات)
+            if len(path_parts) >= 4:
+                course_name = path_parts[-2]  # اسم المقرر (مثل: ثقافة اسلامية 🕋)
+                section_name = path_parts[-1] # اسم القسم (مثل: محاضرات 📃)
+                
+                # تنظيف الأسماء من الإيموجيات الزائدة لكي يتسع حجم الزر في تليجرام
+                course_clean = course_name.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").strip()
+                section_clean = section_name.replace("📃","").replace("📝","").replace("📚","").strip()
+                
+                folder_button_name = f"📁 {section_clean} - {course_clean}"
+            elif len(path_parts) >= 1:
+                # لو كان المجلد في رئيسية الترم مثلاً يظهر اسمه مباشرة
+                folder_button_name = f"📁 {path_parts[-1]}"
 
-        # 4. إعداد الرسالة بدون أي روابط نصية (نص نظيف)
+        # 3. إضافة الزر الشفاف المعتمد كلياً على الـ URL ليصمد ويظهر 100% عند التحويل
+        markup.add(InlineKeyboardButton(folder_button_name, url=deep_folder_url))
+
+        # 4. إعداد الميديا والإرسال النصي النظيف
         file_type, file_id, base_name = res.get('type', 'document'), res.get('file_id'), res.get('name', 'وثيقة')
         up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
         
@@ -556,7 +570,6 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = res.get('caption') or base_name
         caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
-        # 5. الإرسال
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
