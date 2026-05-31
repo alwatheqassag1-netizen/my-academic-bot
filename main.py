@@ -519,7 +519,6 @@ def show_menu(chat_id):
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
 def send_file_to_user(chat_id, res, has_perm):
-def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
         markup = InlineKeyboardMarkup(row_width=2)
