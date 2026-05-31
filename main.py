@@ -504,25 +504,25 @@ def send_file_to_user(chat_id, res, has_perm):
         file_id_str = str(res['_id'])
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
-
+        
         markup = InlineKeyboardMarkup(row_width=2)
-
-        # 1. خيارات الإدارة الحصرية للمشرفين (تختفي عند الطالب العادي)
+        
+        # 1. أزرار التحكم والإدارة الحصرية للمشرفين
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-            # زر النشر في الجروبات الذكي للمشرفين
-            markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query=f"file_{file_id_str}"))
-
-        # 2. أزرار الطلاب العامة
+            # 🔥 زر النشر الذكي المباشر للمشرفين (يفتح واجهة اختيار الجروب/القناة فوراً)
+            markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query_chosen_chat=f"pub_{file_id_str}"))
+            
+        # 2. أزرار الطلاب والتفاعل العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. صياغة اسم الزر الشفاف للمجلد
+        # 3. خوارزمية تسمية الزر الشفاف الاحترافية الكاملة (القسم - المقرر) دون اختصار
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         if path_str:
@@ -538,10 +538,10 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        if has_perm and not testing_mode.get(chat_id):
-            markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
+        # ربط الزر الشفاف للمجلد بالمسار الصحيح
+        markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
-        # 4. إعداد بيانات الوصف والأمر النصي الأزرق الصامد للطلاب
+        # 4. بناء وإعداد بيانات الوصف (Caption)
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -556,6 +556,7 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
         caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
+        # 5. الإرسال المباشر والمستقر للمستخدم من خادم البوت كلياً
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
@@ -1194,29 +1195,7 @@ def handle_admin_inline_share(query):
                 caption=caption, reply_markup=group_markup
             ))
 
+                # ... نهاية كود الـ inline_handler السابق ...
         bot.answer_inline_query(query.id, results, cache_time=1)
     except Exception as e:
         logging.error(f"Inline Share Error: {e}")
-
-# ==========================================
-# 13. تشغيل السيرفر (Webhook Setup)
-# ==========================================
-
-@app.route('/webhook', methods=['POST'])
-def webhook_listen_route():
-    if request.headers.get('content-type') == 'application/json':
-        bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
-        return "!", 200
-    return "Invalid", 403
-
-@app.route("/")
-def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
-
-from flask import redirect
-
-@app.route('/f/<folder_id>')
-def redirect_to_folder(folder_id):
-    return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
