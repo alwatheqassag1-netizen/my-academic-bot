@@ -501,12 +501,26 @@ def send_file_to_user(chat_id, res, has_perm):
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
-        STORAGE_CHANNEL_ID = -1003769719318 
+        markup = InlineKeyboardMarkup(row_width=2)
 
-        channel_markup = InlineKeyboardMarkup(row_width=1)
+        # 1. أزرار المشرف الحصرية (تظهر للمشرف فقط عند استدعاء ملف لمحاضرة ما)
+        if has_perm and not testing_mode.get(chat_id):
+            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
+            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
+            markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
+            markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
+            
+            # 🔥 الخدعة الهندسية: أمر تحويل ونشر الملف مباشرة داخل الجروبات بلمحة عين دون خسارة الأزرار
+            markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query=f"file_{file_id_str}"))
+
+        # 2. أزرار التفاعل والمشاركة العامة
+        markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
+        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
+        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+
+        # 3. صياغة اسم الزر الشفاف للمجلد بناءً على المسار الأكاديمي
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
-        
         if path_str:
             parts = path_str.split(' > ')
             clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
@@ -520,19 +534,11 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        channel_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-
-        private_markup = InlineKeyboardMarkup(row_width=2)
+        # زر المجلد الشفاف يظهر للمشرف فقط داخل البوت للتحكم السلس
         if has_perm and not testing_mode.get(chat_id):
-            private_markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
-            private_markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-        private_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
-        private_markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
-        private_markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+            markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
+        # 4. إعداد بيانات الوصف والأمر النصي الأزرق الاحتياطي للطلاب العاديين
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -545,24 +551,17 @@ def send_file_to_user(chat_id, res, has_perm):
             avg_rt = 0.0
             
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+        
+        # حقن الأمر النصي الصامد ليتنقل مع الطلاب تلقائياً عند تحويلهم اليدوي للملف
+        caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
-        posted_msg = None
-        try:
-            if file_type == 'text': posted_msg = bot.send_message(STORAGE_CHANNEL_ID, res.get('content', res['name']), reply_markup=channel_markup)
-            elif file_type == 'photo' and file_id: posted_msg = bot.send_photo(STORAGE_CHANNEL_ID, file_id, caption=caption, reply_markup=channel_markup)
-            elif file_id: posted_msg = bot.send_document(STORAGE_CHANNEL_ID, file_id, caption=caption, reply_markup=channel_markup)
-        except Exception as channel_err:
-            logging.error(f"Channel Storage Error: {channel_err}")
-            pass
-
-        if posted_msg:
-            bot.forward_message(chat_id, STORAGE_CHANNEL_ID, posted_msg.message_id)
-            bot.send_message(chat_id, "⚙️ *خيارات وإدارة الملف:*", reply_markup=private_markup, parse_mode="Markdown")
-        else:
-            private_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-            if file_type == 'text': bot.send_message(chat_id, res.get('content', res['name']), reply_markup=private_markup)
-            elif file_type == 'photo' and file_id: bot.send_photo(chat_id, file_id, caption=caption, reply_markup=private_markup)
-            elif file_id: bot.send_document(chat_id, file_id, caption=caption, reply_markup=private_markup)
+        # 5. الإرسال المباشر والمستقر للمستخدم من خادم البوت نفسه كلياً
+        if file_type == 'text': 
+            bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
+        elif file_type == 'photo' and file_id: 
+            bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+        elif file_id: 
+            bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
             
     except Exception as e: 
         logging.error(f"Send Error: {e}")
