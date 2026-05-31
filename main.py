@@ -562,7 +562,7 @@ def send_file_to_user(chat_id, res, has_perm):
         except Exception as channel_err:
             logging.error(f"Channel Storage Error: {channel_err}")
             pass
-        def send_file_to_user(chat_id, res, has_perm):
+def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
         file_id_str = str(res['_id'])
