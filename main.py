@@ -499,6 +499,7 @@ def show_menu(chat_id):
 # ==========================================
 
 def send_file_to_user(chat_id, res, has_perm):
+def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
         file_id_str = str(res['_id'])
@@ -507,19 +508,22 @@ def send_file_to_user(chat_id, res, has_perm):
 
         markup = InlineKeyboardMarkup(row_width=2)
 
+        # 1. أزرار التحكم والإدارة الحصرية للمشرفين (تختفي عند الطالب العادي)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-            # زر قذف الرسائل التلقائي الخارق للمشرفين بقفل الـ Inline الثابت
+            # زر النشر الذكي في الجروبات للمشرفين
             markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query_chosen_chat=f"pub_{file_id_str}"))
 
+        # 2. أزرار الطلاب والتفاعل العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
+        # 3. صياغة اسم الزر الشفاف للمجلد (القسم - المقرر) بناءً على قاعدة البيانات
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         if path_str:
@@ -535,9 +539,10 @@ def send_file_to_user(chat_id, res, has_perm):
             elif len(clean_parts) == 1:
                 btn_name = f"📁 {clean_parts[0]}"
 
-        if has_perm and not testing_mode.get(chat_id):
-            markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
+        # إدراج زر المجلد الشفاف
+        markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
+        # 4. استخراج البيانات والـ Caption الخاص بالملف من الـ MongoDB
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -552,6 +557,7 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
         caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
+        # 5. 🔥 التنفيذ الفوري الحاسم: إرسال الملف الحقيقي للطالب بناءً على نوعه الأصلي
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
