@@ -258,7 +258,7 @@ def check_ai_quota(chat_id):
         users_col.update_one({"chat_id": chat_id}, {"$set": {"ai_count": 1, "ai_reset_time": now}}, upsert=True)
         return True
     if user.get("ai_count", 0) < 7:
-        users_col.update_one({"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
+        users_col.update_one{"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
         return True
     return False
 
@@ -498,7 +498,6 @@ def show_menu(chat_id):
 # دالة إرسال واجهة الملف النظيفة للمستقبل
 # ==========================================
 
-def send_file_to_user(chat_id, res, has_perm):
 def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
