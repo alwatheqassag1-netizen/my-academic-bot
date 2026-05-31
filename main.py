@@ -519,6 +519,7 @@ def show_menu(chat_id):
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
 def send_file_to_user(chat_id, res, has_perm):
+def send_file_to_user(chat_id, res, has_perm):
     try:
         if not res: return
         markup = InlineKeyboardMarkup(row_width=2)
@@ -526,48 +527,38 @@ def send_file_to_user(chat_id, res, has_perm):
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
-        # 1. الأزرار الإدارية (تختفي فوراً عند التحويل خارج البوت)
+        # 1. أزرار الإدارة (للمشرفين فقط - تختفي عند التحويل)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-        # 2. أزرار التفاعل الجانبية للطلاب (تختفي أيضاً عند التحويل)
+        # 2. أزرار التفاعل (للطلاب - تختفي عند التحويل)
         markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # ==========================================
-        # 3. الحل الجذري: زر المجلد الثابت الذي لا يمكن أن يُحذف
-        # ==========================================
+        # 3. الخوارزمية الصارمة لجلب اسم "المقرر" فقط (يظهر دائماً حتى عند التحويل)
         path_str = res.get('menu_path', '')
-        btn_name = "📂 عرض المجلد الرئيسي" # اسم افتراضي احتياطي لو كان الملف بدون أي مسار
+        course_name = "المقرر"
         
         if path_str:
-            # تنظيف المسار وتقسيمه بدقة
             parts = [p.strip() for p in path_str.split('>')]
+            target_folder = parts[-1]
             
-            # تنظيف الأسماء من الإيموجيات ليكون الزر أنيقاً
-            clean_parts = []
-            for p in parts:
-                cleaned = p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip()
-                clean_parts.append(cleaned)
+            # إذا كان المجلد الأخير فرعياً (محاضرات، نماذج، ملخصات...) نرجع خطوة للخلف لنأخذ اسم المقرر!
+            sub_keywords = ["محاضرات", "نماذج", "ملخصات", "تمارين", "مراجع", "عملي", "اختبارات"]
+            if len(parts) >= 2 and any(keyword in parts[-1] for keyword in sub_keywords):
+                target_folder = parts[-2]
+                
+            # تنظيف الاسم من الإيموجيات ليكون الزر رسمياً وأنيقاً
+            course_name = target_folder.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").strip()
 
-            # إذا كان المسار يحتوي على قسم ومقرر (مثل: ثقافة اسلامية > محاضرات)
-            if len(clean_parts) >= 2:
-                section = clean_parts[-1] # مثلا: محاضرات
-                course = clean_parts[-2]  # مثلا: ثقافة إسلامية
-                btn_name = f"📁 {section} - {course}"
-            # إذا كان المسار قصيراً جداً (يحتوي على اسم مجلد واحد فقط)
-            elif len(clean_parts) == 1:
-                btn_name = f"📁 {clean_parts[0]}"
+        # زر المقرر الوحيد الذي يصمد عند الـ Forward بفضل الـ url
+        markup.add(InlineKeyboardButton(f"📁 {course_name}", url=deep_folder_url))
 
-        # حقن الزر بالرابط (تليجرام لا يحذف الأزرار التي تحتوي على url)
-        markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-        # ==========================================
-
-        # 4. إعداد الرسالة (بدون أي روابط مشوهة في النص)
+        # 4. إعداد وإرسال الملف بنص نظيف جداً
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -579,7 +570,6 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = res.get('caption') or base_name
         caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
 
-        # 5. الإرسال الفعلي
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
