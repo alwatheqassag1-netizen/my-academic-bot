@@ -81,7 +81,7 @@ DEFAULT_SCI_TEXT = (
     "🔸 الإسلامية: أحلام طلال\n"
     "🔸 البرمجة: جلال عبد الناصر، نهى رفيق، مرام نبيل\n"
     "🔸 الإنجليزي: عمرو خالد، مرام رأفت\n"
-    "🔸 مقدمة علوم البيانات: مودة أسامة, محمد جميل\n"
+    "🔸 مقدمة علوم البيانات: مودة أسامة، محمد جميل\n"
     "🔸 رياضيات متقطعة: عمر عبد الحبيب، حنان عبده\n\n"
     "✨ ختاماً، نشكر كل من اقتطع من وقته لدعم زملائه.. دمتم سنداً لدفعتكم."
 )
@@ -176,7 +176,7 @@ ACADEMIC_STRUCTURE_DEFAULT = {
 db_struct = settings_col.find_one({"_id": "academic_structure"})
 term2_keys = db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).keys() if db_struct else []
 
-if not db_struct or "ثقافة اسلامية 🕋" not in term2_keys or "محاضرات الدكتور 📃" not in db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).get("برمجة الحاسوب 🖥️", {}).keys():
+if not db_struct or "ثقافة islamية 🕋" not in term2_keys or "محاضرات الدكتور 📃" not in db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).get("برمجة الحاسوب 🖥️", {}).keys():
     settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": ACADEMIC_STRUCTURE_DEFAULT}}, upsert=True)
     global_academic_structure = ACADEMIC_STRUCTURE_DEFAULT
 else:
@@ -420,8 +420,8 @@ def show_menu(chat_id):
         markup.add("🚨 وضع الطوارئ", "📝 سجل العمليات")
         markup.add("📊 نشاط المشرفين", "🔍 كشف الملفات المكررة")
         markup.add("💾 النسخ الاحتياطي اليدوي", "✏️ تعديل نصوص البوت")
-        markup.add("📢 إدارة الإعلانات", "🏷️ إدارة الأرشفة")
-        markup.add("📊 إحصائيات المقررات", "⚙️ إعدادات جروب الدفعة")  # إضافة زر تعيين الجروب للأدمن
+        markup.add("📢 إدارة الإعلانات", "📊 إحصائيات المقررات")
+        markup.add("⚙️ إعدادات جروب الدفعة")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "👑 *لوحة المشرف الرئيسي:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -508,15 +508,15 @@ def send_file_to_user(chat_id, res, has_perm):
 
         markup = InlineKeyboardMarkup(row_width=2)
 
+        # أزرار التحكم الحصرية للمشرفين داخل محادثة البوت الخاصة
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-            # زر النشر المباشر المعتمد على واجهة الـ Callback المستقرة بنسبة 100%
             markup.add(InlineKeyboardButton("📢 نشر في جروب الدفعة", callback_data=f"sh_{file_id_str}"))
 
+        # أزرار الطلاب والخدمات العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
@@ -624,7 +624,7 @@ def universal_handler(message):
         elif text == "🔑 صلاحيات المشرفين" and is_owner(chat_id): user_path[chat_id] = ["ADMIN_PERMISSIONS"]
         elif text == "⚙️ إعدادات جروب الدفعة" and is_owner(chat_id):
             current_id = settings.get("target_group_id", "غير معيّن ❌")
-            bot.send_message(chat_id, f"⚙️ *إعدادات جروب النشر الحالي:*\n\nالآيدي المسجل: `{current_id}`\n\nاضغط على الزر بالأسفل لتغييره أو تحديثه في أي وقت الحاجه:", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✏️ تحديث آيدي الجروب", "🛑 إلغاء الأمر"))
+            bot.send_message(chat_id, f"⚙️ *إعدادات جروب النشر الحالي:*\n\nالآيدي المسجل: `{current_id}`\n\nاضغط على الزر بالأسفل لتغييره أو تحديثه في أي وقت الحاجة:", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✏️ تحديث آيدي الجروب", "🛑 إلغاء الأمر"))
             return
         elif text == "📞 التواصل مع المشرف العام":
             dev_msg = settings.get("dev_text", DEFAULT_DEV_TEXT)
@@ -639,7 +639,6 @@ def universal_handler(message):
             bot.send_message(chat_id, dev_msg, reply_markup=markup, parse_mode="Markdown"); return
         show_menu(chat_id); return
 
-    # تنفيذ أمر تحديث الآيدي من داخل البوت
     if text == "✏️ تحديث آيدي الجروب" and is_owner(chat_id):
         reset_modes(chat_id)
         admin_action_mode[chat_id] = "set_group_id_db"
@@ -1078,7 +1077,7 @@ def universal_handler(message):
         user_path[chat_id].append(text.replace("📁 ", "").strip())
         show_menu(chat_id); return
         
-    # محرك استدعاء الملفات المصلح والمحمي والمستقر 100%
+    # محرك استدعاء واستخراج الملفات الأصلي المصلح والمحمي والمستقر 100%
     if text and any(text.startswith(icon) for icon in ["📄 ", "📌 ", "🖼️ "]):
         ex_name = text.split(" ", 1)[1].strip()
         f_doc = files_col.find_one({"menu_path": path_str, "name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
@@ -1095,69 +1094,95 @@ def universal_handler(message):
             bot.send_message(chat_id, "⚠️ تعذر تحديد موقع الملف في قاعدة البيانات.")
         return
 
-# ==========================================
-# 11. أزرار التحكم الجانبية (Inline Callbacks)
-# ==========================================
+# =========================================================
+# 11. محرك معالجة الأزرار الشفافة المركزي الحاسم (Inline Callbacks)
+# =========================================================
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_', 'sh_')))
+@bot.callback_query_handler(func=lambda call: True)
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
-    try: action, obj_id = call.data.split('_', 1)
-    except: return
+    try:
+        # فك شفرة الكول باك بأمان
+        if "_" not in call.data:
+            bot.answer_callback_query(call.id)
+            return
+        action, obj_id = call.data.split('_', 1)
+    except Exception as e:
+        logging.error(f"Callback Split Error: {e}")
+        bot.answer_callback_query(call.id)
+        return
 
-    # معالج النشر المباشر المحدث من قاعدة البيانات
+    # 🎯 1. خيار النشر الفوري المباشر داخل جروب الدفعة المعين
     if action == 'sh':
+        # تفعيل الاستجابة الفورية لتليجرام لمنع تعليق الساعة الرملية على الهاتف
+        bot.answer_callback_query(call.id, "⏳ جاري المعالجة والنشر الفوري...")
+        
         f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
         if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
-            bot.answer_callback_query(call.id, "❌ لا تمتلك صلاحية الإشراف لهذا الإجراء.", show_alert=True)
+            bot.send_message(chat_id, "❌ لا تمتلك صلاحية الإشراف الكافية لتنفيذ النشر.")
             return
         
-        # سحب آيدي الجروب المخزن ديناميكياً في الـ MongoDB
         settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
         TARGET_GROUP_ID = settings.get("target_group_id")
         
         if not TARGET_GROUP_ID:
             bot.send_message(chat_id, "❌ فشل النشر! جروب الدفعة غير معيّن حتى الآن.\nمن فضلك اذهب إلى `👑 لوحة المشرف الرئيسي` -> `⚙️ إعدادات جروب الدفعة` وقم بتعيينه أولاً.")
-            bot.answer_callback_query(call.id)
             return
         
         try:
-            bot.answer_callback_query(call.id, "⏳ جاري قذف الملف داخل جروب الدفعة...")
+            # النشر المباشر للجروب كرسالة أصلية صامدة (has_perm=False لحماية خيارات الأدمن)
             send_file_to_user(TARGET_GROUP_ID, f_doc, has_perm=False)
-            bot.send_message(chat_id, f"✅ تم نشر الملف `{f_doc.get('name')}` بنجاح داخل الجروب المعتمد وبأزراره الشفافة المستقرة!", parse_mode="Markdown")
+            bot.send_message(chat_id, f"✅ تم قذف الملف `{f_doc.get('name')}` بنجاح داخل الجروب الأكاديمي المعتمد وبأزراره الشفافة المستقرة!", parse_mode="Markdown")
             log_action(chat_id, "DIRECT_GROUP_PUBLISH", f_doc['name'])
         except Exception as share_err:
             logging.error(f"Share Panel Error: {share_err}")
-            bot.send_message(chat_id, f"❌ فشل الإرسال الفوري للجروب. تأكد أن البوت موجود داخل الجروب ومرفوع كمشرف.\nنوع الخطأ: `{share_err}`", parse_mode="Markdown")
+            bot.send_message(chat_id, f"❌ فشل النشر التلقائي للجروب العام.\n*تأكد من إدخال البوت داخل الجروب وترقيته كمشرف (Admin) بكامل صلاحيات إرسال الوسائط والمستندات.*\nنوع الخطأ: `{share_err}`", parse_mode="Markdown")
         return
 
+    # 🎯 2. خيار حفظ التقييمات التفاعلية (10 نجوم) ومنع الأزرار الوهمية
+    if action == 'str':
+        bot.answer_callback_query(call.id)
+        try:
+            score, f_id = obj_id.split('_', 1)
+            ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
+            bot.send_message(chat_id, f"⭐️ تم حفظ تقييمك بنجاح بمقدار: {score}/10")
+            try: bot.delete_message(chat_id, call.message.message_id)
+            except: pass
+        except Exception as e:
+            logging.error(f"Rating Callback Error: {e}")
+        return
+
+    # 🎯 3. خيار إضافة وتضمين الملف للمفضلة الشخصية للطالب
     if action == 'fv':
+        bot.answer_callback_query(call.id, "❤️ تمت الإضافة للمفضلة الأكاديمية!")
         users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
-        bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True); return
+        return
         
+    # 🎯 4. خيار عرض مصفوفة تقييم النجوم المنبثقة
     if action == 'rt':
+        bot.answer_callback_query(call.id)
         m = InlineKeyboardMarkup(row_width=5)
         m.add(*[InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)])
         try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
         except: pass
         return
-        
-    if action == 'str':
-        score, f_id = obj_id.split('_')
-        ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
-        bot.answer_callback_query(call.id, f"⭐️ تم حفظ تقييمك: {score}/10", show_alert=True)
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
-        return
 
+    # 🎯 5. خيار عرض بطاقة تفاصيل تحميل وتاريخ رفع المستند
     if action == 'rl':
         f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
         if f_doc:
             bot.answer_callback_query(call.id, f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}", show_alert=True)
+        else:
+            bot.answer_callback_query(call.id, "❌ تعذر العثور على سجل الملف.")
         return
 
+    # 🛑 جدار الحماية: التحقق من صلاحيات المشرف للمسارات الإدارية القادمة (تسمية، استبدال، حذف، نقل)
     f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
-    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']): bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True); return
+    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']): 
+        bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الإدارية لهذا الإجراء الكول باك.", show_alert=True)
+        return
+
+    bot.answer_callback_query(call.id) # تحرير فوري للزرار لمنع تعليق واجهة الهاتف
 
     if action == 'dl':
         files_col.delete_one({"_id": ObjectId(obj_id)})
@@ -1178,7 +1203,7 @@ def handle_inline_callbacks(call):
     elif action in ['up', 'dn', 'pn']:
         if action == 'pn': files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
         else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
-        bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False); show_menu(chat_id)
+        show_menu(chat_id)
 
 # ==========================================
 # 14. تشغيل السيرفر وإدارة الـ Webhook بأمان
