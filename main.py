@@ -577,7 +577,15 @@ def send_file_to_user(chat_id, res, has_perm):
 def universal_handler(message):
     chat_id = message.chat.id
     
-    # إعفاء تام للملفات والوسائط من الـ Rate Limit لتجنب ضياع الحزم (Batch Fix)
+    # 1. جلب الإعدادات فوراً لفحص حالة البوت قبل معالجة أي طلب
+    settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
+    
+    # 2. الطرد الفوري والصارم للمستخدمين العاديين إذا كان البوت متوقفاً (مع استثناء الإدارة)
+    if settings.get("status") == "inactive" and not is_admin(chat_id):
+        bot.send_message(chat_id, "🚧 المنصة الأكاديمية تحت الصيانة الدورية حالياً. نعود إليكم فور الانتهاء قريباً.")
+        return  # قطع فوري يمنع تنفيذ أي سطر بالأسفل ويحمي السيرفر
+        
+    # 3. إعفاء تام للملفات والوسائط من الـ Rate Limit لتجنب ضياع الحزم (Batch Fix)
     if message.content_type == 'text':
         if not check_rate_limit(chat_id): return
         
@@ -586,7 +594,6 @@ def universal_handler(message):
     user_data = users_col.find_one({"chat_id": chat_id})
     if user_data and user_data.get("blocked"): return
     
-    settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     text = message.text if message.content_type == 'text' else ""
     path_str = get_path_string(chat_id)
     mode = admin_action_mode.get(chat_id)
