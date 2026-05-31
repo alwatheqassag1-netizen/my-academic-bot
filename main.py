@@ -81,7 +81,7 @@ DEFAULT_SCI_TEXT = (
     "🔸 الإسلامية: أحلام طلال\n"
     "🔸 البرمجة: جلال عبد الناصر، نهى رفيق، مرام نبيل\n"
     "🔸 الإنجليزي: عمرو خالد، مرام رأفت\n"
-    "🔸 مقدمة علوم البيانات: مودة أسامة، محمد جميل\n"
+    "🔸 مقدمة علوم البيانات: مودة أسامة, محمد جميل\n"
     "🔸 رياضيات متقطعة: عمر عبد الحبيب، حنان عبده\n\n"
     "✨ ختاماً، نشكر كل من اقتطع من وقته لدعم زملائه.. دمتم سنداً لدفعتكم."
 )
@@ -117,7 +117,7 @@ if admins_col.count_documents({"id": SUPER_ADMIN_ID}) == 0:
     admins_col.insert_one({"id": SUPER_ADMIN_ID, "type": "super", "allowed_paths": [], "permissions": ["all"], "active": True})
 
 if settings_col.count_documents({"_id": "bot_general_settings"}) == 0:
-    settings_col.insert_one({"_id": "bot_general_settings", "status": "active", "emergency_flags": {"ai": False, "upload": False, "search": False, "ads": False}})
+    settings_col.insert_one({"_id": "bot_general_settings", "status": "active", "emergency_flags": {"ai": False, "upload": False, "search": False, "ads": False}, "target_group_id": None})
 
 # ==========================================
 # 4. الهيكل الأكاديمي الديناميكي
@@ -421,7 +421,7 @@ def show_menu(chat_id):
         markup.add("📊 نشاط المشرفين", "🔍 كشف الملفات المكررة")
         markup.add("💾 النسخ الاحتياطي اليدوي", "✏️ تعديل نصوص البوت")
         markup.add("📢 إدارة الإعلانات", "🏷️ إدارة الأرشفة")
-        markup.add("⭐️ التقييمات", "📊 إحصائيات المقررات")
+        markup.add("📊 إحصائيات المقررات", "⚙️ إعدادات جروب الدفعة")  # إضافة زر تعيين الجروب للأدمن
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "👑 *لوحة المشرف الرئيسي:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -494,13 +494,9 @@ def show_menu(chat_id):
             
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
-# =========================================================
-# دالة إرسال واجهة المستند والملف الأصلي (موزونة المحاذاة)
-# =========================================================
-
-# =========================================================
+# ==========================================
 # دالة إرسال واجهة المستند والملف الأصلي للمستقبل
-# =========================================================
+# ==========================================
 
 def send_file_to_user(chat_id, res, has_perm):
     try:
@@ -512,22 +508,19 @@ def send_file_to_user(chat_id, res, has_perm):
 
         markup = InlineKeyboardMarkup(row_width=2)
 
-        # 1. أزرار التحكم والإدارة للمشرفين (تظهر للمشرف فقط)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-            # 🔥 الحل المستقر: زر النشر المباشر عبر الـ Inline المضمون
-            markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query=f"pub_{file_id_str}"))
+            # زر النشر المباشر المعتمد على واجهة الـ Callback المستقرة بنسبة 100%
+            markup.add(InlineKeyboardButton("📢 نشر في جروب الدفعة", callback_data=f"sh_{file_id_str}"))
 
-        # 2. أزرار الطلاب والتفاعل العامة
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. صياغة اسم الزر الشفاف للمجلد (القسم - المقرر)
         path_str = res.get('menu_path', '')
         btn_name = "📁 المجلد الرئيسي" 
         if path_str:
@@ -559,7 +552,6 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
         caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
 
-        # الإرسال الفعلي المباشر للمحتوى بناءً على نوعه
         if file_type == 'text': 
             bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
         elif file_type == 'photo' and file_id: 
@@ -569,80 +561,6 @@ def send_file_to_user(chat_id, res, has_perm):
             
     except Exception as e: 
         logging.error(f"Send Error: {e}")
-
-# =========================================================
-# 12. محرك النشر الفوري المباشر داخل الجروبات (Inline Handler)
-# =========================================================
-
-@bot.inline_handler(func=lambda query: query.query.startswith('pub_'))
-def handle_admin_inline_share(query):
-    try:
-        if not is_moderator(query.from_user.id): 
-            return
-
-        obj_id = query.query.split('_', 1)[1]
-        res = files_col.find_one({"_id": ObjectId(obj_id)})
-        if not res: 
-            return
-
-        file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
-
-        path_str = res.get('menu_path', '')
-        btn_name = "📁 المجلد الرئيسي"
-        if path_str:
-            parts = path_str.split(' > ')
-            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
-            if len(clean_parts) >= 2:
-                section = clean_parts[-1]
-                course = clean_parts[-2]
-                if "نماذج" in section: section = "نماذج"
-                if "محاضرات" in section: section = "محاضرات"
-                if "ملخصات" in section: section = "ملخصات"
-                btn_name = f"📁 {section} - {course}"
-
-        # هذه الأزرار ستقذف داخل الجروب وتصمد 100% لأن الرسالة تعتبر أصلية من البوت
-        group_markup = InlineKeyboardMarkup(row_width=2)
-        group_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-        group_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
-
-        file_type = res.get('type', 'document')
-        file_id = res.get('file_id')
-        base_name = res.get('name', 'وثيقة أكاديمية')
-        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-        
-        try:
-            ratings = list(ratings_col.find({"file_id": file_id_str}))
-            avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
-        except Exception:
-            avg_rt = 0.0
-
-        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
-        caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
-
-        results = []
-        if file_type == 'photo' and file_id:
-            results.append(telebot.types.InlineQueryResultCachedPhoto(
-                id=file_id_str, photo_file_id=file_id, caption=caption, reply_markup=group_markup
-            ))
-        elif file_type == 'text':
-            results.append(telebot.types.InlineQueryResultArticle(
-                id=file_id_str, title=base_name, description="اضغط هنا لنشر هذا الملخص النصي فوراً",
-                input_message_content=telebot.types.InputTextMessageContent(res.get('content', base_name)),
-                reply_markup=group_markup
-            ))
-        elif file_id:
-            # تم حقن باراميتر title الإلزامي لمنع تجميد مربع النص كالمحاولة السابقة
-            results.append(telebot.types.InlineQueryResultCachedDocument(
-                id=file_id_str, document_file_id=file_id, title=base_name,
-                description="اضغط هنا لقذف هذا المستند والمجلد الشفاف الخاص به فوراً",
-                caption=caption, reply_markup=group_markup
-            ))
-
-        bot.answer_inline_query(query.id, results, cache_time=1)
-    except Exception as e:
-        logging.error(f"Inline Share Error: {e}")
 
 # ==========================================
 # 10. المعالج المركزي (Router)
@@ -656,9 +574,6 @@ def universal_handler(message):
     if settings.get("status") == "inactive" and not is_admin(chat_id):
         bot.send_message(chat_id, "🚧 المنصة الأكاديمية تحت الصيانة الدورية حالياً. نعود إليكم فور الانتهاء قريباً.")
         return 
-        
-    if message.content_type == 'text':
-        if not check_rate_limit(chat_id): return
         
     global system_stats; system_stats["requests_24h"] += 1
 
@@ -686,7 +601,7 @@ def universal_handler(message):
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم", "⚙️ إعدادات جروب الدفعة"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
@@ -707,6 +622,10 @@ def universal_handler(message):
         elif text == "🛡️ لوحة المشرف العام" and is_admin(chat_id): user_path[chat_id] = ["GLOBAL_ADMIN_PANEL"]
         elif text == "👥 إدارة المشرفين" and is_owner(chat_id): user_path[chat_id] = ["MANAGE_ADMINS"]
         elif text == "🔑 صلاحيات المشرفين" and is_owner(chat_id): user_path[chat_id] = ["ADMIN_PERMISSIONS"]
+        elif text == "⚙️ إعدادات جروب الدفعة" and is_owner(chat_id):
+            current_id = settings.get("target_group_id", "غير معيّن ❌")
+            bot.send_message(chat_id, f"⚙️ *إعدادات جروب النشر الحالي:*\n\nالآيدي المسجل: `{current_id}`\n\nاضغط على الزر بالأسفل لتغييره أو تحديثه في أي وقت الحاجه:", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✏️ تحديث آيدي الجروب", "🛑 إلغاء الأمر"))
+            return
         elif text == "📞 التواصل مع المشرف العام":
             dev_msg = settings.get("dev_text", DEFAULT_DEV_TEXT)
             markup = InlineKeyboardMarkup(row_width=1)
@@ -719,6 +638,26 @@ def universal_handler(message):
             )
             bot.send_message(chat_id, dev_msg, reply_markup=markup, parse_mode="Markdown"); return
         show_menu(chat_id); return
+
+    # تنفيذ أمر تحديث الآيدي من داخل البوت
+    if text == "✏️ تحديث آيدي الجروب" and is_owner(chat_id):
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "set_group_id_db"
+        bot.send_message(chat_id, "📥 من فضلك قم بإرسال آيدي (ID) الجروب الجديد الآن (يجب أن يبدأ بـ -100 وسالب):", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر"))
+        return
+
+    if mode == "set_group_id_db" and text and is_owner(chat_id):
+        try:
+            group_id_num = int(text.strip())
+            settings_col.update_one({"_id": "bot_general_settings"}, {"$set": {"target_group_id": group_id_num}}, upsert=True)
+            log_action(chat_id, "SET_TARGET_GROUP_ID", f"New Group ID: {group_id_num}")
+            bot.send_message(chat_id, f"✅ تم حفظ وتحديث آيدي جروب النشر بنجاح في قاعدة البيانات!\n🎯 الآيدي الحالي: `{group_id_num}`", parse_mode="Markdown")
+            reset_modes(chat_id)
+            user_path[chat_id] = ["SUPER_ADMIN_PANEL"]
+            show_menu(chat_id)
+        except:
+            bot.send_message(chat_id, "❌ خطأ! يرجى إرسال المعرف الرقمي للجروب بشكل صحيح (أرقام فقط مع إشارة السالب).")
+        return
 
     if text == "⭐ إضافة هذا القسم للمفضلة":
         if path_str:
@@ -1061,7 +1000,7 @@ def universal_handler(message):
         log_action(chat_id, "BOT_TOGGLE", f"Set bot status to {new_status}")
         bot.send_message(chat_id, f"✅ تم {'إيقاف' if new_status == 'inactive' else 'تشغيل'} البوت بنجاح."); show_menu(chat_id); return
 
-    if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS"]:
+    if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS", "⚙️ إعدادات جروب الدفعة"]:
         if is_mod:
             if text == "➕ إضافة ملف/نص":
                 reset_modes(chat_id); upload_mode[chat_id] = True
@@ -1114,7 +1053,7 @@ def universal_handler(message):
     if mode == "rename_file" and text:
         files_col.update_one({"_id": ObjectId(action_payload.get(chat_id))}, {"$set": {"name": text.strip()}})
         log_action(chat_id, "RENAME_FILE", text[:20])
-        bot.send_message(chat_id, "✅ تم تحديث اسم الملف في قاعدة البيانات، وسيظهر بالاسم الجديد فوراً دون الحاجة لإعادة رفعه."); reset_modes(chat_id); show_menu(chat_id); return
+        bot.send_message(chat_id, "✅ تم تحديث اسم الملف في قاعدة البيانات."); reset_modes(chat_id); show_menu(chat_id); return
 
     if mode == "replace_file":
         doc = build_file_doc(message, path_str)
@@ -1139,36 +1078,58 @@ def universal_handler(message):
         user_path[chat_id].append(text.replace("📁 ", "").strip())
         show_menu(chat_id); return
         
-        # 🎯 معالج استدعاء الملفات المصلح والمضمون 100%
+    # محرك استدعاء الملفات المصلح والمحمي والمستقر 100%
     if text and any(text.startswith(icon) for icon in ["📄 ", "📌 ", "🖼️ "]):
-        ex_name = text.split(" ", 1)[1].strip() # قص الأيقونة بذكاء للحصول على الاسم الصافي
-        
-        # البحث المرن: نجلب الملف الذي يطابق الاسم، وإذا كان هناك تكرار نأخذ التابع للمسار الحالي
+        ex_name = text.split(" ", 1)[1].strip()
         f_doc = files_col.find_one({"menu_path": path_str, "name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
         if not f_doc:
-            # خطة حماية احتياطية: إذا اختلف مسار الإيموجيات، ابحث بالاسم الصافي في كل المستندات فوراً
             f_doc = files_col.find_one({"name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
             
         if f_doc:
             try:
                 files_col.update_one({"_id": f_doc["_id"]}, {"$inc": {"downloads": 1}})
-                # التحقق من صلاحية الإشراف للمسار الأصلي للملف لضمان ظهور لوحة التحكم
                 send_file_to_user(chat_id, f_doc, is_moderator(chat_id, f_doc.get('menu_path', path_str)))
             except Exception as send_err:
                 logging.error(f"Error while executing send_file_to_user: {send_err}")
         else:
-            bot.send_message(chat_id, "⚠️ تعذر تحديد موقع الملف في قاعدة البيانات، يرجى إخطار اللجنة العلمية لتحديث المسار.")
+            bot.send_message(chat_id, "⚠️ تعذر تحديد موقع الملف في قاعدة البيانات.")
         return
 
 # ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
 # ==========================================
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_', 'sh_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
     try: action, obj_id = call.data.split('_', 1)
     except: return
+
+    # معالج النشر المباشر المحدث من قاعدة البيانات
+    if action == 'sh':
+        f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
+        if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
+            bot.answer_callback_query(call.id, "❌ لا تمتلك صلاحية الإشراف لهذا الإجراء.", show_alert=True)
+            return
+        
+        # سحب آيدي الجروب المخزن ديناميكياً في الـ MongoDB
+        settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
+        TARGET_GROUP_ID = settings.get("target_group_id")
+        
+        if not TARGET_GROUP_ID:
+            bot.send_message(chat_id, "❌ فشل النشر! جروب الدفعة غير معيّن حتى الآن.\nمن فضلك اذهب إلى `👑 لوحة المشرف الرئيسي` -> `⚙️ إعدادات جروب الدفعة` وقم بتعيينه أولاً.")
+            bot.answer_callback_query(call.id)
+            return
+        
+        try:
+            bot.answer_callback_query(call.id, "⏳ جاري قذف الملف داخل جروب الدفعة...")
+            send_file_to_user(TARGET_GROUP_ID, f_doc, has_perm=False)
+            bot.send_message(chat_id, f"✅ تم نشر الملف `{f_doc.get('name')}` بنجاح داخل الجروب المعتمد وبأزراره الشفافة المستقرة!", parse_mode="Markdown")
+            log_action(chat_id, "DIRECT_GROUP_PUBLISH", f_doc['name'])
+        except Exception as share_err:
+            logging.error(f"Share Panel Error: {share_err}")
+            bot.send_message(chat_id, f"❌ فشل الإرسال الفوري للجروب. تأكد أن البوت موجود داخل الجروب ومرفوع كمشرف.\nنوع الخطأ: `{share_err}`", parse_mode="Markdown")
+        return
 
     if action == 'fv':
         users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
@@ -1218,99 +1179,6 @@ def handle_inline_callbacks(call):
         if action == 'pn': files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
         else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
         bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False); show_menu(chat_id)
-
-# =========================================================
-# 12. محرك النشر في المجموعات (Inline Handler)
-# =========================================================
-
-@bot.inline_handler(func=lambda query: query.query.startswith('file_'))
-def handle_admin_inline_share(query):
-    try:
-        if not is_moderator(query.from_user.id): return
-
-        obj_id = query.query.split('_', 1)[1]
-        res = files_col.find_one({"_id": ObjectId(obj_id)})
-        if not res: return
-
-        file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
-
-        path_str = res.get('menu_path', '')
-        btn_name = "📁 المجلد الرئيسي"
-        if path_str:
-            parts = path_str.split(' > ')
-            clean_parts = [p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip() for p in parts]
-            if len(clean_parts) >= 2:
-                section = clean_parts[-1]
-                course = clean_parts[-2]
-                if "نماذج" in section: section = "نماذج"
-                if "محاضرات" in section: section = "محاضرات"
-                if "ملخصات" in section: section = "ملخصات"
-                btn_name = f"📁 {section} - {course}"
-
-        group_markup = InlineKeyboardMarkup(row_width=2)
-        group_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
-        group_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
-
-        file_type = res.get('type', 'document')
-        file_id = res.get('file_id')
-        base_name = res.get('name', 'وثيقة أكاديمية')
-        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-        
-        try:
-            ratings = list(ratings_col.find({"file_id": file_id_str}))
-            avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
-        except Exception:
-            avg_rt = 0.0
-
-        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
-        caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
-
-        results = []
-        if file_type == 'photo' and file_id:
-            results.append(telebot.types.InlineQueryResultCachedPhoto(
-                id=f"pub_{file_id_str}", photo_file_id=file_id, caption=caption, reply_markup=group_markup
-            ))
-        elif file_type == 'text':
-            results.append(telebot.types.InlineQueryResultArticle(
-                id=f"pub_{file_id_str}", title=base_name, description="اضغط هنا لنشر هذا الملخص النصي فوراً داخل المحادثة",
-                input_message_content=telebot.types.InputTextMessageContent(res.get('content', base_name)),
-                reply_markup=group_markup
-            ))
-        elif file_id:
-            results.append(telebot.types.InlineQueryResultCachedDocument(
-                id=f"pub_{file_id_str}", document_file_id=file_id, title=base_name,
-                description="اضغط هنا لنشر هذا المستند والمجلد الشفاف الخاص به فوراً",
-                caption=caption, reply_markup=group_markup
-            ))
-
-        bot.answer_inline_query(query.id, results, cache_time=1)
-    except Exception as e:
-        logging.error(f"Inline Share Error: {e}")
-
-# =========================================================
-# 13. محرك قذف الملفات داخل المجموعات المفتوحة للمشرفين
-# =========================================================
-
-@bot.chosen_inline_handler(func=lambda chosen_inline_result: chosen_inline_result.result_id.startswith('pub_'))
-def handle_chosen_admin_share(chosen_inline_result):
-    try:
-        admin_id = chosen_inline_result.from_user.id
-        if not is_moderator(admin_id): return
-
-        file_id_str = chosen_inline_result.result_id.split('_', 1)[1]
-        res = files_col.find_one({"_id": ObjectId(file_id_str)})
-        if not res: return
-
-        target_chat_id = chosen_inline_result.inline_message_id 
-        if not target_chat_id and chosen_inline_result.query:
-            target_chat_id = chosen_inline_result.from_user.id 
-
-        send_file_to_user(target_chat_id, res, has_perm=True)
-        log_action(admin_id, "DIRECT_GROUP_SHARE", f"Shared file {res.get('name')} to chat")
-    except Exception as e:
-        logging.error(f"Chosen Share Error: {e}")
 
 # ==========================================
 # 14. تشغيل السيرفر وإدارة الـ Webhook بأمان
