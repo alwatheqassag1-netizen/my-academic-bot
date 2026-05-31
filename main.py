@@ -87,7 +87,7 @@ DEFAULT_SCI_TEXT = (
 )
 
 # ==========================================
-# 3. الاتصال بقاعدة البيانات والتهيئة الديناميكية
+# 3. الاتصال بقاعدة البيانات
 # ==========================================
 
 try:
@@ -127,25 +127,26 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "🌱 مستوى أول": {
         "📅 ترم أول": {},
         "📅 ترم ثاني": {
-            "🕌 ثقافة اسلامية 🕌": {"📁 محاضرات وملخصات": {}, "📝 نماذج اختبارات": {}},
-            "🟢 لغة عربية 102 🟢": {"📁 محاضرات وملخصات": {}, "📝 نماذج اختبارات": {}},
-            "🔠 English language 102 🔠": {"📁 محاضرات وملخصات": {}, "📝 نماذج اختبارات": {}},
-            "📐 تفاضل وتكامل 102 📐 Calculus 102": {"📂 محاضرات نظري": {}, "📐 محاضرات تمارين": {}, "📝 نماذج اختبارات نظري": {}, "✍️ نماذج تمارين": {}, "📚 مراجع خارجية": {}},
-            "📊 مقدمة في علوم البيانات 📊 Data Science": {"👨‍🏫 محاضرات المهندس": {}, "📜 ملخص محاضرات": {}, "⚙️ محاضرات العملي": {}, "📝 نماذج اختبارات نظري": {}},
-            "برمجة الحاسوب": {"📂 محاضرات نظري": {}, "🖥️ محاضرات العملي": {}, "📝 نماذج اختبارات": {}, "🚀 التمارين والمشاريع العملية": {}},
-            "رياضيات متقطعة": {"📂 محاضرات نظري": {}, "✏️ محاضرات تمارين": {}, "📝 نماذج اختبارات": {}, "📚 مراجع خارجية": {}}
-        },
-        "اللجنة العلمية": {}
+            "ثقافة اسلامية 🕋": {},
+            "لغة عربية 2 🇾🇪": {},
+            "لغة إنجليزية 2 🇺🇸": {},
+            "تفاضل وتكامل   2 📐": {},
+            "مقدمة في علوم البيانات 📊": {},
+            "برمجة الحاسوب 🖥️": {},
+            "رياضيات متقطعة": {},
+            "📁 تفاصيل الاختبارات النهائية ♨️ -": {}
+        }
     },
     "🌿 مستوى ثاني": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
     "☘️ مستوى ثالث": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
-    "🌳 مستوى رابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}}
+    "🌳 مستوى رابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
+    "📖 دليل القسم": {}
 }
 
-# سحب الهيكل من قاعدة البيانات لدعم التعديل عليه برمجياً
+# مزامنة الهيكل الجديد لضمان تحديث (دليل القسم) و (ترم ثاني) في قاعدة البيانات فوراً
 db_struct = settings_col.find_one({"_id": "academic_structure"})
-if not db_struct:
-    settings_col.insert_one({"_id": "academic_structure", "data": ACADEMIC_STRUCTURE_DEFAULT})
+if not db_struct or "📖 دليل القسم" not in db_struct.get("data", {}):
+    settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": ACADEMIC_STRUCTURE_DEFAULT}}, upsert=True)
     global_academic_structure = ACADEMIC_STRUCTURE_DEFAULT
 else:
     global_academic_structure = db_struct["data"]
@@ -269,7 +270,7 @@ def build_file_doc(message, path_str):
 def process_user_batch(chat_id, path_str, is_mod):
     batch = upload_batches.pop(chat_id, [])
     if not batch: return
-    batch.sort(key=lambda msg: msg.message_id) # الفرز الدقيق بناءً على ترتيب الإرسال (Telegram ID)
+    batch.sort(key=lambda msg: msg.message_id) 
     
     succ = 0
     base_sort = int(time.time() * 10)
@@ -280,7 +281,7 @@ def process_user_batch(chat_id, path_str, is_mod):
             if ext not in ['pdf', 'docx', 'pptx']: continue
                 
         doc = build_file_doc(msg, path_str)
-        doc['sort_order'] = base_sort + i # الإدراج بالتتابع التلقائي (الأول فوق، يليه الثاني...)
+        doc['sort_order'] = base_sort + i
         if doc['file_id'] and not files_col.find_one({"menu_path": path_str, "file_id": doc['file_id']}):
             files_col.insert_one(doc)
             succ += 1
@@ -358,8 +359,7 @@ def show_menu(chat_id):
     if not path:
         for key in global_academic_structure.keys():
             markup.add(KeyboardButton(key))
-        markup.add(KeyboardButton("🌟 ميزات الطالب"), KeyboardButton("📖 دليل القسم"))
-        markup.add(KeyboardButton("📞 التواصل مع المشرف العام"))
+        markup.add(KeyboardButton("🌟 ميزات الطالب"), KeyboardButton("📞 التواصل مع المشرف العام"))
         if is_owner(chat_id) and not testing_mode.get(chat_id):
             markup.add(KeyboardButton("👑 لوحة المشرف الرئيسي"))
         if is_admin(chat_id) and not is_owner(chat_id) and not testing_mode.get(chat_id):
@@ -396,13 +396,8 @@ def show_menu(chat_id):
         bot.send_message(chat_id, "🔑 *صلاحيات المشرفين:*", reply_markup=markup, parse_mode="Markdown"); return
 
     if path_str == "GLOBAL_ADMIN_PANEL":
-        perms = get_admin_permissions(chat_id)
-        if "users_mgt" in perms: markup.add("👥 إدارة المستخدمين")
-        if "channels_mgt" in perms: markup.add("📡 إدارة القنوات والمجموعات")
-        if "stats" in perms: markup.add("📈 إحصائيات النظام", "📊 حالة النظام")
-        if "broadcast" in perms: markup.add("📢 إدارة الإعلانات")
-        if "archives" in perms: markup.add("🏷️ إدارة الأرشفة")
-        if "courses_stats" in perms: markup.add("📊 إحصائيات المقررات")
+        markup.add("📊 حالة النظام", "🔍 كشف الملفات المكررة")
+        markup.add("📊 إحصائيات المقررات", "⭐️ التقييمات")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "🛡️ *لوحة المشرف العام:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -433,6 +428,10 @@ def show_menu(chat_id):
     if isinstance(current_menu, dict):
         for key in current_menu.keys(): markup.add(KeyboardButton(key))
             
+        # زر اللجنة العلمية يظهر حصرياً داخل مستوى أول
+        if path_str == "🌱 مستوى أول":
+            markup.add(KeyboardButton("اللجنة العلمية"))
+
         for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
             markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
             
@@ -446,7 +445,7 @@ def show_menu(chat_id):
         # الصلاحيات داخل المسار (للمشرفين)
         if is_moderator(chat_id, path_str):
             markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
-            if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات حتى الجذرية
+            if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
                 markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
                 markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
         else:
@@ -511,12 +510,16 @@ def universal_handler(message):
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id); bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية."); show_menu(chat_id); return
 
+    # [اللجنة العلمية الديناميكية - كزر نصي وليس مجلداً]
+    if text == "اللجنة العلمية":
+        bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
+
     # [ملاحة القوائم المباشرة والديناميكية]
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "📖 دليل القسم", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين"] + list(global_academic_structure.keys())
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
-    # التقاط مجلدات الهيكل الأكاديمي (الترم الأول، الثاني، الخ) التي ليست في الرئيسية
+    # التقاط مجلدات الهيكل الأكاديمي التي ليست في الرئيسية
     if text not in main_nav and isinstance(current_menu, dict) and text in current_menu.keys():
         if mode not in ["navigate_to_assign", "move_file_dest"]: reset_modes(chat_id)
         user_path[chat_id].append(text)
@@ -534,8 +537,6 @@ def universal_handler(message):
         elif text == "🛡️ لوحة المشرف العام" and is_admin(chat_id): user_path[chat_id] = ["GLOBAL_ADMIN_PANEL"]
         elif text == "👥 إدارة المشرفين" and is_owner(chat_id): user_path[chat_id] = ["MANAGE_ADMINS"]
         elif text == "🔑 صلاحيات المشرفين" and is_owner(chat_id): user_path[chat_id] = ["ADMIN_PERMISSIONS"]
-        elif text == "📖 دليل القسم": 
-            bot.send_message(chat_id, "📖 *دليل قسم الذكاء الاصطناعي وعلوم البيانات*\n\nتجد هنا الخطة الدراسية والمعلومات الأكاديمية الخاصة بالقسم المعتمدة.", parse_mode="Markdown"); return
         elif text == "📞 التواصل مع المشرف العام":
             dev_msg = settings.get("dev_text", DEFAULT_DEV_TEXT)
             markup = InlineKeyboardMarkup(row_width=1)
@@ -555,10 +556,6 @@ def universal_handler(message):
             users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": "path:" + path_str}})
             bot.send_message(chat_id, "✅ تم إضافة القسم للمفضلة بنجاح.")
         return
-
-    # [اللجنة العلمية الديناميكية]
-    if text == "اللجنة العلمية":
-        bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
     # [الرفع الذكي الدفعي للمشرفين والطلاب]
     if message.content_type in ['document', 'photo', 'video', 'audio'] and upload_mode.get(chat_id):
@@ -791,21 +788,49 @@ def universal_handler(message):
             for r in rec: send_file_to_user(chat_id, r, False)
         else: bot.send_message(chat_id, "لا توجد ملفات حديثة مضافة خلال 24 ساعة."); return
 
-    if text == "📡 إدارة القنوات والمجموعات" and (is_owner(chat_id) or "channels_mgt" in get_admin_permissions(chat_id)):
-        bot.send_message(chat_id, "📡 تم تخصيص هذا القسم لربط القنوات والمجموعات الأكاديمية.\n*(جاري تفعيل الـ API للربط قريباً)*")
-        return
-        
-    if text == "👥 إدارة المستخدمين" and (is_owner(chat_id) or "users_mgt" in get_admin_permissions(chat_id)):
-        bot.send_message(chat_id, f"👥 إجمالي المستخدمين المسجلين: {users_col.count_documents({})}")
-        return
-
-    # [أدوات المشرف الرئيسي والعام] (محمية بـ try/catch لضمان عملها 100%)
-    if text == "📊 حالة النظام" and (is_owner(chat_id) or "stats" in get_admin_permissions(chat_id)):
+    # [أدوات المشرف الرئيسي والعام مع المعالجة الكاملة]
+    if text == "📊 حالة النظام" and is_admin(chat_id):
         try:
             u_c, f_c, d_c = users_col.count_documents({}), files_col.count_documents({}), folders_col.count_documents({})
             st = f"📊 *تقرير حالة النظام:*\n👥 المستخدمين: {u_c} | 📁 الملفات: {f_c} | 📂 المجلدات: {d_c}\n⏱️ وقت التشغيل الفعلي: {str(datetime.utcnow() - START_TIME).split('.')[0]}"
             bot.send_message(chat_id, st, parse_mode="Markdown")
         except Exception as e: bot.send_message(chat_id, f"حدث خطأ: {e}")
+        return
+
+    if text == "🔍 كشف الملفات المكررة" and is_admin(chat_id):
+        try:
+            dups = list(files_col.aggregate([{"$group": {"_id": "$file_id", "count": {"$sum": 1}, "names": {"$push": "$name"}}}, {"$match": {"count": {"$gt": 1}}}]))
+            msg = "🔍 *تقرير بالملفات المكررة (معرفات متطابقة):*\n"
+            for d in dups[:10]: msg += f"• عدد التكرار: {d['count']} | اسم الملف: {d['names'][0]}\n"
+            bot.send_message(chat_id, msg if dups else "✅ النظام سليم ولا يوجد تكرار بالملفات.", parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ حدث خطأ أثناء الفحص: {e}")
+        return
+
+    if (text == "📊 إحصائيات المقررات" or text == "📊 الإحصائيات التفصيلية للمقررات") and is_admin(chat_id):
+        stats = list(files_col.aggregate([{"$match": {"menu_path": {"$regex": "^🌱|^🌿|^☘️|^🌳"}}}, {"$group": {"_id": "$menu_path", "count": {"$sum": 1}, "downloads": {"$sum": "$downloads"}}}, {"$sort": {"downloads": -1}}, {"$limit": 15}]))
+        msg = "📊 *الإحصائيات التفصيلية للمقررات:*\n\n"
+        for s in stats: msg += f"📁 `{s['_id']}`\n📄 الملفات: {s['count']} | 🔻 عمليات التحميل: {s['downloads']}\n\n"
+        bot.send_message(chat_id, msg if stats else "لا توجد إحصائيات كافية للمقررات.", parse_mode="Markdown"); return
+
+    if text == "⭐️ التقييمات" and is_admin(chat_id):
+        top = list(ratings_col.aggregate([{"$group": {"_id": "$file_id", "avg": {"$avg": "$score"}, "cnt": {"$sum": 1}}}, {"$sort": {"avg": -1}}, {"$limit": 10}]))
+        msg = "⭐️ *قائمة أعلى الملفات تقييماً:*\n"
+        for r in top:
+            f = files_col.find_one({"_id": ObjectId(r["_id"])})
+            if f: msg += f"• {f['name']} | متوسط: {r['avg']:.1f} ({r['cnt']} أصوات)\n"
+        bot.send_message(chat_id, msg if top else "لا توجد تقييمات مسجلة بعد.", parse_mode="Markdown"); return
+
+    if text == "📝 سجل العمليات" and is_owner(chat_id):
+        try:
+            logs = list(action_logs_col.find().sort("timestamp", -1).limit(20))
+            msg = "📝 *سجل الإجراءات والعمليات الإدارية:*\n\n"
+            for lg in logs:
+                t_str = lg['timestamp'].strftime('%Y-%m-%d %H:%M')
+                msg += f"🔸 `{t_str}`\n👤 {lg.get('admin_name','-')} | ⚙️ {lg['action']}\n\n"
+            bot.send_message(chat_id, msg if logs else "السجل خالي من أي عمليات.", parse_mode="Markdown")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ حدث خطأ في جلب السجل: {e}")
         return
 
     if text == "📈 إحصائيات النظام" and (is_owner(chat_id) or "stats" in get_admin_permissions(chat_id)):
@@ -818,45 +843,11 @@ def universal_handler(message):
         else: bot.send_message(chat_id, sm, parse_mode="Markdown")
         return
 
-    if text == "⭐️ التقييمات" and is_admin(chat_id):
-        top = list(ratings_col.aggregate([{"$group": {"_id": "$file_id", "avg": {"$avg": "$score"}, "cnt": {"$sum": 1}}}, {"$sort": {"avg": -1}}, {"$limit": 10}]))
-        msg = "⭐️ *قائمة أعلى الملفات تقييماً:*\n"
-        for r in top:
-            f = files_col.find_one({"_id": ObjectId(r["_id"])})
-            if f: msg += f"• {f['name']} | متوسط: {r['avg']:.1f} ({r['cnt']} أصوات)\n"
-        bot.send_message(chat_id, msg if top else "لا توجد تقييمات مسجلة بعد.", parse_mode="Markdown"); return
-
-    if text == "📊 إحصائيات المقررات" or text == "📊 الإحصائيات التفصيلية للمقررات" and (is_owner(chat_id) or "courses_stats" in get_admin_permissions(chat_id)):
-        stats = list(files_col.aggregate([{"$match": {"menu_path": {"$regex": "^🌱|^🌿|^☘️|^🌳"}}}, {"$group": {"_id": "$menu_path", "count": {"$sum": 1}, "downloads": {"$sum": "$downloads"}}}, {"$sort": {"downloads": -1}}, {"$limit": 15}]))
-        msg = "📊 *الإحصائيات التفصيلية للمقررات:*\n\n"
-        for s in stats: msg += f"📁 `{s['_id']}`\n📄 الملفات: {s['count']} | 🔻 عمليات التحميل: {s['downloads']}\n\n"
-        bot.send_message(chat_id, msg if stats else "لا توجد إحصائيات كافية للمقررات.", parse_mode="Markdown"); return
-
-    if text == "📝 سجل العمليات" and is_owner(chat_id):
-        try:
-            logs = list(action_logs_col.find().sort("timestamp", -1).limit(20))
-            msg = "📝 *سجل الإجراءات والعمليات الإدارية:*\n"
-            for lg in logs: msg += f"• {lg['timestamp'].strftime('%m-%d %H:%M')} | {lg.get('admin_name','-')} | {lg['action']}\n"
-            bot.send_message(chat_id, msg if logs else "السجل خالي من أي عمليات.", parse_mode="Markdown")
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ حدث خطأ في جلب السجل: {e}")
-        return
-
     if text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين" and is_owner(chat_id):
         logs = list(action_logs_col.aggregate([{"$group": {"_id": "$admin_name", "count": {"$sum": 1}}}]))
         msg = "📊 *إحصائيات نشاط المشرفين:*\n"
         for l in logs: msg += f"• {l['_id']}: {l['count']} إجراء مسجل\n"
         bot.send_message(chat_id, msg if logs else "لا توجد نشاطات مسجلة للمشرفين.", parse_mode="Markdown"); return
-
-    if text == "🔍 كشف الملفات المكررة" and is_owner(chat_id):
-        try:
-            dups = list(files_col.aggregate([{"$group": {"_id": "$file_id", "count": {"$sum": 1}, "names": {"$push": "$name"}}}, {"$match": {"count": {"$gt": 1}}}]))
-            msg = "🔍 *تقرير بالملفات المكررة (معرفات متطابقة):*\n"
-            for d in dups[:10]: msg += f"• عدد التكرار: {d['count']} | اسم الملف: {d['names'][0]}\n"
-            bot.send_message(chat_id, msg if dups else "✅ النظام سليم ولا يوجد تكرار بالملفات.", parse_mode="Markdown")
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ حدث خطأ أثناء الفحص: {e}")
-        return
 
     if text == "💾 النسخ الاحتياطي اليدوي" and is_owner(chat_id):
         bot.send_message(chat_id, "⏳ جاري تصدير قواعد البيانات...")
@@ -870,7 +861,6 @@ def universal_handler(message):
         m = ReplyKeyboardMarkup(resize_keyboard=True)
         m.add(f"{'🟢' if not flags.get('ai') else '🔴'} الذكاء الاصطناعي", f"{'🟢' if not flags.get('upload') else '🔴'} الرفع")
         m.add(f"{'🟢' if not flags.get('search') else '🔴'} البحث", f"{'🟢' if not flags.get('ads') else '🔴'} الإعلانات")
-        # زر تشغيل أو إيقاف البوت ديناميكياً
         bot_status_btn = "🟢 تشغيل البوت كلياً" if settings.get("status") == "inactive" else "🛑 إيقاف البوت كلياً"
         m.add(bot_status_btn, "🔙 الرجوع للقائمة السابقة")
         bot.send_message(chat_id, "🚨 *لوحة تحكم الطوارئ المركزية:*", reply_markup=m, parse_mode="Markdown"); return
@@ -926,7 +916,7 @@ def universal_handler(message):
         parent_p = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
         new_name = text.strip()
         
-        # 1. تحديث الاسم في الهيكل الديناميكي إن وجد (المجلدات الأساسية)
+        # 1. تحديث الاسم في الهيكل الديناميكي إن وجد
         renamed_in_struct = rename_in_structure(global_academic_structure, old_name, new_name)
         if renamed_in_struct:
             settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": global_academic_structure}})
@@ -1054,7 +1044,7 @@ def webhook_listen_route():
     return "Invalid", 403
 
 @app.route("/")
-def index_home_route(): return "Bot V5.4 LMS Master Active & Running 🚀", 200
+def index_home_route(): return "Bot V5.5 LMS Master Active & Running 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
