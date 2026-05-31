@@ -127,13 +127,43 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "🌱 مستوى أول": {
         "📅 ترم أول": {},
         "📅 ترم ثاني": {
-            "ثقافة اسلامية 🕋": {},
-            "لغة عربية 2 🇾🇪": {},
-            "لغة إنجليزية 2 🇺🇸": {},
-            "تفاضل وتكامل   2 📐": {},
-            "مقدمة في علوم البيانات 📊": {},
-            "برمجة الحاسوب 🖥️": {},
-            "رياضيات متقطعة": {},
+            "ثقافة اسلامية 🕋": {
+                "محاضرات 📃": {},
+                "نماذج اختبارات 📝": {}
+            },
+            "لغة عربية 2 🇾🇪": {
+                "محاضرات 📃": {},
+                "نماذج اختبارات 📝": {}
+            },
+            "لغة إنجليزية 2 🇺🇸": {
+                "محاضرات 📃": {},
+                "نماذج اختبارات 📝": {}
+            },
+            "تفاضل وتكامل   2 📐": {
+                "محاضرات الدكتور 📃": {},
+                "محاضرات تمارين📚": {},
+                "نماذج اختبارات نظري📝": {},
+                "نماذج تمارين 📝": {},
+                "مراجع خارجية": {}
+            },
+            "مقدمة في علوم البيانات 📊": {
+                "محاضرات الدكتور 📃": {},
+                "📄 ملخصات محاضرات الدكتور 📄": {},
+                "محاضرات العملي📚": {},
+                "نماذج اختبارات نظري 📝": {}
+            },
+            "برمجة الحاسوب 🖥️": {
+                "محاضرات الدكتور 📃": {},
+                "محاضرات عملي برمجة": {},
+                "نماذج اختبارات برمجة 📝": {},
+                "تمارين ومشاريع عملية 📜": {}
+            },
+            "رياضيات متقطعة": {
+                "محاضرات  الدكتور 📃": {},
+                "محاضرات  التمارين": {},
+                "نماذج اختبارات رياضيات متقطعة 📝": {},
+                "مرجع  خارجي 📜": {}
+            },
             "📁 تفاصيل الاختبارات النهائية ♨️": {}
         }
     },
@@ -143,9 +173,11 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "📖 دليل القسم": {}
 }
 
-# المزامنة التلقائية لضمان تفعيل هيكل الترم الثاني بدون شرطة أو إضافات
+# مزامنة الهيكل الجديد لضمان تحديث (الترم الثاني) ومجلداته في قاعدة البيانات فوراً
 db_struct = settings_col.find_one({"_id": "academic_structure"})
-if not db_struct or "📁 تفاصيل الاختبارات النهائية ♨️" not in db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}):
+term2_keys = db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).keys() if db_struct else []
+
+if not db_struct or "ثقافة اسلامية 🕋" not in term2_keys or "محاضرات الدكتور 📃" not in db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).get("برمجة الحاسوب 🖥️", {}).keys():
     settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": ACADEMIC_STRUCTURE_DEFAULT}}, upsert=True)
     global_academic_structure = ACADEMIC_STRUCTURE_DEFAULT
 else:
@@ -177,7 +209,7 @@ def is_admin(chat_id):
     return adm is not None and adm.get("type") == "global"
 
 def is_moderator(chat_id, current_path_str=None):
-    if is_admin(chat_id): return True
+    if is_admin(chat_id): return not testing_mode.get(chat_id)
     if testing_mode.get(chat_id): return False
     adm = admins_col.find_one({"id": chat_id, "active": True})
     if not adm: return False
@@ -428,34 +460,37 @@ def show_menu(chat_id):
     if isinstance(current_menu, dict):
         for key in current_menu.keys(): markup.add(KeyboardButton(key))
             
-        # زر اللجنة العلمية يظهر حصرياً داخل مستوى أول
-        if path_str == "🌱 مستوى أول":
-            markup.add(KeyboardButton("اللجنة العلمية"))
+    # زر اللجنة العلمية يظهر حصرياً داخل مستوى أول
+    if path_str == "🌱 مستوى أول":
+        markup.add(KeyboardButton("اللجنة العلمية"))
 
-        for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
-            markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
-            
-        for db_file in files_col.find({"menu_path": path_str}).sort([("sort_order", 1), ("_id", 1)]).limit(50):
-            icon = "📌" if db_file.get("type") == "text" else "🖼️" if db_file.get("type") == "photo" else "📄"
-            markup.add(KeyboardButton(f"{icon} {db_file['name']}"))
-            
-        if path_str in global_academic_structure.keys(): markup.add("🔙 الرجوع للقائمة الرئيسية")
-        else: markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
-            
-        # الصلاحيات داخل المسار (للمشرفين)
-        if is_moderator(chat_id, path_str):
-            markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
-            if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
-                markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
-                markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
-        else:
-            if current_menu is None or len(path) > 1:
-                markup.add("📤 مساهمة بملف")
+    # استدعاء المجلدات الديناميكية للمسار الحالي (مهم جداً لتشغيل مجلدات المشرفين)
+    for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
+        markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
         
-        if not is_owner(chat_id) or testing_mode.get(chat_id):
-            markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
-                
-        bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`", reply_markup=markup, parse_mode="Markdown")
+    for db_file in files_col.find({"menu_path": path_str}).sort([("sort_order", 1), ("_id", 1)]).limit(50):
+        icon = "📌" if db_file.get("type") == "text" else "🖼️" if db_file.get("type") == "photo" else "📄"
+        markup.add(KeyboardButton(f"{icon} {db_file['name']}"))
+        
+    # أزرار التنقل السفلية
+    if path: 
+        if len(path) == 1: markup.add("🔙 الرجوع للقائمة الرئيسية")
+        else: markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
+        
+    # الصلاحيات داخل المسار (للمشرفين)
+    if is_moderator(chat_id, path_str):
+        markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
+        if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
+            markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
+            markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
+    else:
+        if current_menu is None or len(path) > 1:
+            markup.add("📤 مساهمة بملف")
+    
+    if not is_owner(chat_id) or testing_mode.get(chat_id):
+        if path_str: markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
+            
+    bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
 def send_file_to_user(chat_id, res, has_perm):
     try:
@@ -496,7 +531,7 @@ def send_file_to_user(chat_id, res, has_perm):
 def universal_handler(message):
     chat_id = message.chat.id
     
-    # إعفاء الملفات من الـ rate limit لتجنب ضياعها عند التحويل دفعة واحدة (Batch Upload Fix)
+    # إعفاء تام للملفات والوسائط من الـ Rate Limit لتجنب ضياع الحزم (Batch Fix)
     if message.content_type == 'text':
         if not check_rate_limit(chat_id): return
         
@@ -526,7 +561,7 @@ def universal_handler(message):
         show_menu(chat_id); return
 
     # [اللجنة العلمية الديناميكية - كزر نصي وليس مجلداً]
-    if text == "اللجنة العلمية":
+    if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
     # [ملاحة القوائم المباشرة والديناميكية]
@@ -572,7 +607,7 @@ def universal_handler(message):
             bot.send_message(chat_id, "✅ تم إضافة القسم للمفضلة بنجاح.")
         return
 
-    # [الرفع الذكي الدفعي للمشرفين والطلاب]
+    # [الرفع الذكي الدفعي للمشرفين والطلاب بمهلة موسعة]
     if message.content_type in ['document', 'photo', 'video', 'audio'] and upload_mode.get(chat_id):
         if settings.get("emergency_flags", {}).get("upload", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 عذراً، استقبال الملفات معطل حالياً للصيانة."); return
@@ -580,7 +615,7 @@ def universal_handler(message):
         if chat_id not in upload_batches: upload_batches[chat_id] = []
         upload_batches[chat_id].append(message)
         if chat_id in upload_timers: upload_timers[chat_id].cancel()
-        upload_timers[chat_id] = threading.Timer(4.0, process_user_batch, args=[chat_id, path_str, is_mod])
+        upload_timers[chat_id] = threading.Timer(5.0, process_user_batch, args=[chat_id, path_str, is_mod])
         upload_timers[chat_id].start()
         return
 
@@ -901,7 +936,7 @@ def universal_handler(message):
         log_action(chat_id, "BOT_TOGGLE", f"Set bot status to {new_status}")
         bot.send_message(chat_id, f"✅ تم {'إيقاف' if new_status == 'inactive' else 'تشغيل'} البوت بنجاح."); show_menu(chat_id); return
 
-    # [العمليات الإدارية داخل الأقسام الديناميكية]
+    # [العمليات الإدارية داخل الأقسام الديناميكية والمجلدات]
     if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS"]:
         
         if text == "📤 مساهمة بملف":
@@ -981,7 +1016,15 @@ def universal_handler(message):
         files_col.insert_one({"menu_path": path_str, "name": text[:60].strip(), "type": "text", "content": text, "downloads": 0, "upload_date": datetime.utcnow(), "sort_order": 0})
         bot.send_message(chat_id, "✅ تم حفظ التلخيص النصي بنجاح."); return
 
-    # [فتح الملفات والمجلدات الديناميكية والمفضلة]
+    # [الاستماع للمجلدات المضافة يدوياً - لمعالجة المجلدات الديناميكية]
+    if text.startswith("📁 ") and " > " in text:
+        user_path[chat_id] = text.replace("📁 ", "").strip().split(" > ")
+        show_menu(chat_id); return
+    elif text.startswith("📁 "):
+        user_path[chat_id].append(text.replace("📁 ", "").strip())
+        show_menu(chat_id); return
+        
+    # [فتح الملفات]
     if text and (text.startswith("📄 ") or text.startswith("📌 ") or text.startswith("🖼️ ")):
         ex_name = text.replace("📄 ", "").replace("📌 ", "").replace("🖼️ ", "").strip()
         f_doc = files_col.find_one({"menu_path": path_str, "name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
@@ -989,13 +1032,6 @@ def universal_handler(message):
             files_col.update_one({"_id": f_doc["_id"]}, {"$inc": {"downloads": 1}})
             send_file_to_user(chat_id, f_doc, is_moderator(chat_id, path_str))
         return
-
-    if text.startswith("📁 ") and " > " in text:
-        user_path[chat_id] = text.replace("📁 ", "").strip().split(" > ")
-        show_menu(chat_id); return
-    elif text.startswith("📁 "):
-        user_path[chat_id].append(text.replace("📁 ", "").strip())
-        show_menu(chat_id); return
 
 # ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
@@ -1067,7 +1103,7 @@ def webhook_listen_route():
     return "Invalid", 403
 
 @app.route("/")
-def index_home_route(): return "Bot V5.6 LMS Master Active & Running 🚀", 200
+def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
