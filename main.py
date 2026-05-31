@@ -513,7 +513,7 @@ def send_file_to_user(chat_id, res, has_perm):
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-            # زر قذف الرسائل التلقائي الخارق للمشرفين
+            # زر قذف الرسائل التلقائي الخارق للمشرفين بقفل الـ Inline الثابت
             markup.add(InlineKeyboardButton("📢 نشر في الجروبات", switch_inline_query_chosen_chat=f"pub_{file_id_str}"))
 
         markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
@@ -1195,7 +1195,7 @@ def handle_admin_inline_share(query):
         logging.error(f"Inline Share Error: {e}")
 
 # =========================================================
-# 📢 محرك قذف الملفات التلقائي داخل الجروب المختار للمشرفين
+# 13. محرك قذف الملفات التلقائي داخل الجروب المختار للمشرفين
 # =========================================================
 
 @bot.chosen_inline_handler(func=lambda chosen_inline_result: chosen_inline_result.result_id.startswith('pub_'))
@@ -1236,10 +1236,8 @@ def redirect_to_folder(folder_id):
     return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
 
 if __name__ == "__main__":
-    # تنظيف واستدعاء الـ Webhook تلقائياً لكسر خروج ريندر المبكر وصدمة السيرفر
     try:
         bot.remove_webhook()
-        # استبدل النطاق أدناه برابط Render الجديد الخاص بك إذا قمت بتغييره
         bot.set_webhook(url=f"https://academic-bot-iyuy.onrender.com/webhook")
     except: pass
     app.run(host="0.0.0.0", port=5000)
