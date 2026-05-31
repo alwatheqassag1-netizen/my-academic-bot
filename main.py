@@ -1140,69 +1140,93 @@ def handle_inline_callbacks(call):
         return
 
     # 🎯 2. خيار حفظ التقييمات التفاعلية (10 نجوم) ومنع الأزرار الوهمية
-    if action == 'str':
-        bot.answer_callback_query(call.id)
-        try:
-            score, f_id = obj_id.split('_', 1)
-            ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
-            bot.send_message(chat_id, f"⭐️ تم حفظ تقييمك بنجاح بمقدار: {score}/10")
-            try: bot.delete_message(chat_id, call.message.message_id)
-            except: pass
-        except Exception as e:
-            logging.error(f"Rating Callback Error: {e}")
+# ==========================================
+# 11. المعالج المركزي الشامل لجميع أزرار الأوامر
+# ==========================================
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_inline_callbacks(call):
+    chat_id = call.message.chat.id
+    # فحص أولي للبيانات
+    if not call.data or "_" not in call.data:
+        bot.answer_callback_query(call.id, "خطأ في بيانات الزر")
         return
 
-    # 🎯 3. خيار إضافة وتضمين الملف للمفضلة الشخصية للطالب
+    # تحليل الكول باك
+    try:
+        action, obj_id = call.data.split('_', 1)
+    except Exception as e:
+        logging.error(f"Callback Split Error: {e}")
+        bot.answer_callback_query(call.id, "خطأ تقني")
+        return
+
+    # --- 1. النشر في الجروب ---
+    if action == 'sh':
+        f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
+        if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
+            bot.answer_callback_query(call.id, "❌ صلاحية مرفوضة", show_alert=True)
+            return
+        
+        settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
+        TARGET_GROUP_ID = settings.get("target_group_id")
+        
+        if not TARGET_GROUP_ID:
+            bot.answer_callback_query(call.id, "❌ الجروب غير معيّن!", show_alert=True)
+            return
+        
+        bot.answer_callback_query(call.id, "⏳ جاري النشر...")
+        try:
+            send_file_to_user(TARGET_GROUP_ID, f_doc, has_perm=False)
+            bot.send_message(chat_id, "✅ تم النشر في الجروب!")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ فشل: {e}")
+        return
+
+    # --- 2. المفضلة ---
     if action == 'fv':
-        bot.answer_callback_query(call.id, "❤️ تمت الإضافة للمفضلة الأكاديمية!")
         users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
+        bot.answer_callback_query(call.id, "❤️ تمت الإضافة للمفضلة!")
         return
         
-    # 🎯 4. خيار عرض مصفوفة تقييم النجوم المنبثقة
+    # --- 3. التقييم ---
     if action == 'rt':
-        bot.answer_callback_query(call.id)
         m = InlineKeyboardMarkup(row_width=5)
         m.add(*[InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)])
-        try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
-        except: pass
+        bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
+        return
+        
+    if action == 'str':
+        score, f_id = obj_id.split('_', 1)
+        ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
+        bot.answer_callback_query(call.id, f"⭐️ تم التقييم: {score}")
         return
 
-    # 🎯 5. خيار عرض بطاقة تفاصيل تحميل وتاريخ رفع المستند
-    if action == 'rl':
-        f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
-        if f_doc:
-            bot.answer_callback_query(call.id, f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "❌ تعذر العثور على سجل الملف.")
-        return
-
-    # 🛑 جدار الحماية: التحقق من صلاحيات المشرف للمسارات الإدارية القادمة (تسمية، استبدال، حذف، نقل)
+    # --- 4. التحكم الإداري (حذف، تسمية، نقل) ---
     f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
-    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']): 
-        bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الإدارية لهذا الإجراء الكول باك.", show_alert=True)
+    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
+        bot.answer_callback_query(call.id, "❌ غير مسموح", show_alert=True)
         return
 
-    bot.answer_callback_query(call.id) # تحرير فوري للزرار لمنع تعليق واجهة الهاتف
-
+    bot.answer_callback_query(call.id)
+    
     if action == 'dl':
         files_col.delete_one({"_id": ObjectId(obj_id)})
-        log_action(chat_id, "DELETE_FILE", f_doc['name'])
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
+        bot.delete_message(chat_id, call.message.message_id)
         show_menu(chat_id)
     elif action == 'rn':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "✏️ الرجاء إرسال الاسم الجديد للملف الآن:")
+        admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
+        bot.send_message(chat_id, "✏️ أرسل الاسم الجديد:")
     elif action == 'rp':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "🔄 الرجاء إرسال الملف البديل الآن:")
+        admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
+        bot.send_message(chat_id, "🔄 أرسل الملف الجديد:")
     elif action == 'mv':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل واضغط زر التأكيد.")
-        user_path[chat_id] = []; show_menu(chat_id)
+        admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
+        bot.send_message(chat_id, "📦 اختر القسم الجديد:")
+        show_menu(chat_id)
     elif action in ['up', 'dn', 'pn']:
-        if action == 'pn': files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
-        else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
+        inc = -1 if action == 'up' else 1
+        if action == 'pn': inc = -999
+        files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": inc}})
         show_menu(chat_id)
 
 # ==========================================
