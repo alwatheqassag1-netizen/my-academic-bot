@@ -247,10 +247,23 @@ def reset_modes(chat_id, clear_upload=True):
     action_payload.pop(chat_id, None)
 
 def check_rate_limit(chat_id):
-    now = time.time()
-    if chat_id in RATE_LIMIT_DICT and now - RATE_LIMIT_DICT[chat_id] < 0.6: return False
-    RATE_LIMIT_DICT[chat_id] = now
+    # ... كودك الحالي ...
     return True
+
+# ضع الدالة الجديدة هنا:
+def check_ai_quota(chat_id):
+    if is_owner(chat_id): return True
+    user = users_col.find_one({"chat_id": chat_id})
+    if not user: return True
+    now = datetime.utcnow()
+    last_reset = user.get("ai_reset_time", now - timedelta(days=1))
+    if now - last_reset > timedelta(days=1):
+        users_col.update_one({"chat_id": chat_id}, {"$set": {"ai_count": 1, "ai_reset_time": now}}, upsert=True)
+        return True
+    if user.get("ai_count", 0) < 7:
+        users_col.update_one({"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
+        return True
+    return False
 
 # ==========================================
 # 6. نظام الذكاء الاصطناعي (مُحسّن بالسياق)
@@ -809,6 +822,12 @@ def universal_handler(message):
     if text == "🤖 المساعد الذكي (AI)":
         if settings.get("emergency_flags", {}).get("ai", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 المساعد الذكي معطل مؤقتاً للصيانة."); return
+        
+        # --- إضافة التحقق من الكوتا هنا ---
+        if not check_ai_quota(chat_id):
+            bot.send_message(chat_id, "⚠️ لقد استنفدت محاولاتك اليومية (7/7). سيتم تجديدها تلقائياً غداً.")
+            return
+            
         reset_modes(chat_id); admin_action_mode[chat_id] = "ai_chat"
         if chat_id not in ai_memory: ai_memory[chat_id] = []
         bot.send_message(chat_id, "🤖 أهلاً بك، تفضل بطرح سؤالك أو استفسارك الأكاديمي:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
