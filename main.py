@@ -524,40 +524,49 @@ def send_file_to_user(chat_id, res, has_perm):
         markup = InlineKeyboardMarkup(row_width=2)
         file_id_str = str(res['_id'])
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
+        
+        # الرابط الملعوب المرتبط بسيرفر Render الخاص بك مباشرة لخداع تليجرام
+        deep_folder_url = f"https://academic-bot-iyuy.onrender.com/f/{file_id_str}"
 
-        # 1. أزرار الإدارة (للمشرفين فقط - تختفي عند التحويل)
+        # 1. أزرار التحكم للمشرفين (تختفي تلقائياً عند التحويل)
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
             markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
             markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
             
-        # 2. أزرار التفاعل (للطلاب - تختفي عند التحويل)
+        # 2. أزرار الطلاب (تختفي تلقائياً عند التحويل)
         markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        # 3. الخوارزمية الصارمة لجلب اسم "المقرر" فقط (يظهر دائماً حتى عند التحويل)
+        # 3. خوارزمية جلب اسم (القسم - المقرر) لتلبية طلبك الاحترافي
         path_str = res.get('menu_path', '')
-        course_name = "المقرر"
+        btn_name = "📁 المجلد الرئيسي" 
         
         if path_str:
-            parts = [p.strip() for p in path_str.split('>')]
-            target_folder = parts[-1]
-            
-            # إذا كان المجلد الأخير فرعياً (محاضرات، نماذج، ملخصات...) نرجع خطوة للخلف لنأخذ اسم المقرر!
-            sub_keywords = ["محاضرات", "نماذج", "ملخصات", "تمارين", "مراجع", "عملي", "اختبارات"]
-            if len(parts) >= 2 and any(keyword in parts[-1] for keyword in sub_keywords):
-                target_folder = parts[-2]
+            parts = path_str.split(' > ')
+            clean_parts = []
+            for p in parts:
+                cleaned = p.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").replace("📃","").replace("📝","").replace("📚","").strip()
+                clean_parts.append(cleaned)
+
+            if len(clean_parts) >= 2:
+                section = clean_parts[-1]
+                course = clean_parts[-2]
                 
-            # تنظيف الاسم من الإيموجيات ليكون الزر رسمياً وأنيقاً
-            course_name = target_folder.replace("🕋","").replace("🇺🇸","").replace("🇾🇪","").replace("📊","").replace("🖥️","").replace("📐","").strip()
+                if "نماذج" in section: section = "نماذج"
+                if "محاضرات" in section: section = "محاضرات"
+                if "ملخصات" in section: section = "ملخصات"
+                
+                btn_name = f"📁 {section} - {course}"
+            elif len(clean_parts) == 1:
+                btn_name = f"📁 {clean_parts[0]}"
 
-        # زر المقرر الوحيد الذي يصمد عند الـ Forward بفضل الـ url
-        markup.add(InlineKeyboardButton(f"📁 {course_name}", url=deep_folder_url))
+        # 4. حقن الزر الشفاف بالرابط الخارجي الملعوب لكي ينجو 100% ويصمد عند التحويل
+        markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
 
-        # 4. إعداد وإرسال الملف بنص نظيف جداً
+        # 5. بناء وإرسال الميديا بنص نظيف تماماً
         file_type = res.get('type', 'document')
         file_id = res.get('file_id')
         base_name = res.get('name', 'وثيقة')
@@ -578,8 +587,7 @@ def send_file_to_user(chat_id, res, has_perm):
             
     except Exception as e: 
         logging.error(f"Send Error: {e}")
-
-            
+        
         markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url), InlineKeyboardButton("📂 عرض المقرر", url=deep_folder_url))
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
@@ -1216,6 +1224,17 @@ def webhook_listen_route():
 
 @app.route("/")
 def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
+
+# ==========================================
+# 🕵️‍♂️ الخدعة السرية لكسر حظر تليجرام عند التحويل
+# ==========================================
+from flask import redirect
+
+@app.route('/f/<folder_id>')
+def redirect_to_folder(folder_id):
+    # الخادم يمسك الطلب الخارجي فوراً ويحوله لفتح المجلد داخل تطبيق تليجرام
+    return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
+# ==========================================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
