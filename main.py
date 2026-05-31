@@ -1200,50 +1200,40 @@ def handle_admin_inline_share(query):
     except Exception as e:
         logging.error(f"Inline Share Error: {e}")
 
-# =========================================================
-# 13. محرك قذف الملفات التلقائي داخل الجروب المختار للمشرفين
-# =========================================================
-
-@bot.chosen_inline_handler(func=lambda chosen_inline_result: chosen_inline_result.result_id.startswith('pub_'))
-def handle_chosen_admin_share(chosen_inline_result):
-    try:
-        admin_id = chosen_inline_result.from_user.id
-        if not is_moderator(admin_id): return
-
-        file_id_str = chosen_inline_result.result_id.split('_', 1)[1]
-        res = files_col.find_one({"_id": ObjectId(file_id_str)})
-        if not res: return
-
-        target_chat_id = chosen_inline_result.inline_message_id 
-        if not target_chat_id and chosen_inline_result.query:
-            target_chat_id = chosen_inline_result.from_user.id 
-
-        send_file_to_user(target_chat_id, res, has_perm=True)
-        log_action(admin_id, "DIRECT_GROUP_SHARE", f"Shared file {res.get('name')} to chat")
-    except Exception as e:
-        logging.error(f"Chosen Share Error: {e}")
-
 # ==========================================
-# 14. تشغيل السيرفر وتفعيل الـ Webhook المباشر
+# 14. تشغيل السيرفر وإدارة الـ Webhook بأمان
 # ==========================================
 
 @app.route('/webhook', methods=['POST'])
 def webhook_listen_route():
     if request.headers.get('content-type') == 'application/json':
-        bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
         return "!", 200
     return "Invalid", 403
 
 @app.route("/")
-def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
+def index_home_route(): 
+    return "Bot V5.7 LMS Master Active & Running 🚀", 200
 
 @app.route('/f/<folder_id>')
 def redirect_to_folder(folder_id):
     return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
 
-if __name__ == "__main__":
+# دالة ذكية تعمل في الخلفية لربط الـ Webhook دون تعطيل إقلاع Render
+def init_webhook_safely():
+    time.sleep(3) # ننتظر 3 ثوانٍ كاملة حتى يقلع Flask أولاً ويفتح المنفذ
     try:
         bot.remove_webhook()
-        bot.set_webhook(url=f"https://academic-bot-iyuy.onrender.com/webhook")
-    except: pass
+        bot.set_webhook(url="https://academic-bot-iyuy.onrender.com/webhook")
+        logging.info("Webhook Set Successfully via Background Thread!")
+    except Exception as e:
+        logging.error(f"Webhook Thread Error: {e}")
+
+if __name__ == "__main__":
+    # تشغيل خيط الخلفية الآمن لتثبيت الـ Webhook دون قفل السيرفر
+    threading.Thread(target=init_webhook_safely, daemon=True).start()
+    
+    # إقلاع السيرفر الفوري على المنفذ المطلوب
     app.run(host="0.0.0.0", port=5000)
