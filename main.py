@@ -521,9 +521,13 @@ def send_file_to_user(chat_id, res, has_perm):
         if not res: return
         markup = InlineKeyboardMarkup(row_width=2)
         file_id_str = str(res['_id'])
+        
+        # إنشاء روابط تليجرام المباشرة (Deep Links)
         share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
+        bot_link = f"https://t.me/{BOT_USERNAME}?start={file_id_str}"
 
+        # بناء الأزرار التفاعلية للمحادثة المباشرة مع البوت
         if has_perm and not testing_mode.get(chat_id):
             markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
             markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
@@ -534,18 +538,36 @@ def send_file_to_user(chat_id, res, has_perm):
         markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
         markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
 
-        file_type, file_id, caption = res.get('type', 'document'), res.get('file_id'), res.get('caption') or res.get('name', 'وثيقة')
+        file_type, file_id, base_name = res.get('type', 'document'), res.get('file_id'), res.get('name', 'وثيقة')
         up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
         
         ratings = list(ratings_col.find({"file_id": file_id_str}))
         avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
         
-        caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+        # --- التطوير المضمون: دمج روابط الانتقال داخل نص الشرح لحمايتها عند إعادة التحويل (Forward) ---
+        # نستخدم Markdown V2 أو HTML لتنسيق النصوص والروابط بشكل احترافي
+        custom_caption = (
+            f"📄 *{base_name}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10\n\n"
+            f"🔗 [📂 فتح المقرر في المجلد]({deep_folder_url})\n"
+            f"📥 [⚡ تحميل وتصفح الملف مباشرة]({bot_link})"
+        )
 
-        if file_type == 'text': bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
-        elif file_type == 'photo' and file_id: bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
-        elif file_id: bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
-    except Exception as e: logging.error(f"Send Error: {e}")
+        # إرسال الملف بناءً على نوعه مع تفعيل صيغة Markdown لتشغيل الروابط النصية
+        if file_type == 'text': 
+            # بالنسبة للنصوص نرسل الرابط بأسفل الرسالة النصية
+            text_content = res.get('content', res['name'])
+            text_content += f"\n\n🔗 [📂 فتح المقرر في المجلد]({deep_folder_url})\n📥 [⚡ تحميل الملف]({bot_link})"
+            bot.send_message(chat_id, text_content, reply_markup=markup, parse_mode="Markdown")
+        elif file_type == 'photo' and file_id: 
+            bot.send_photo(chat_id, file_id, caption=custom_caption, reply_markup=markup, parse_mode="Markdown")
+        elif file_id: 
+            bot.send_document(chat_id, file_id, caption=custom_caption, reply_markup=markup, parse_mode="Markdown")
+            
+    except Exception as e: 
+        logging.error(f"Send Error: {e}")
+
 
 # ==========================================
 # 10. المعالج المركزي (Router)
