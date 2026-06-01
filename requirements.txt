@@ -1,4 +1,0 @@
-pyTelegramBotAPI
-pymongo
-Flask
-requests
