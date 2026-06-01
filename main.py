@@ -38,6 +38,7 @@ add_folder_mode = {}
 admin_action_mode = {}
 testing_mode = {}
 action_payload = {}
+action_initiator = {}  # لتتبع من بدأ الإجراء في المجموعات
 RATE_LIMIT_DICT = {}
 ai_memory = {}
 broadcast_mode = {}
@@ -244,6 +245,7 @@ def reset_modes(chat_id, clear_upload=True):
     add_folder_mode[chat_id] = False
     admin_action_mode[chat_id] = None
     action_payload.pop(chat_id, None)
+    action_initiator.pop(chat_id, None)
 
 def check_rate_limit(chat_id):
     return True
@@ -557,6 +559,38 @@ def universal_handler(message):
     
     settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     
+    # ========== إصلاح المجموعات: اعتراض الملفات المعاد توجيهها ==========
+    if message.chat.type in ['group', 'supergroup'] and message.content_type in ['document', 'photo', 'video', 'audio']:
+        if message.from_user.id == bot.get_me().id:
+            return  # تجاهل رسائل البوت نفسه
+        # استخراج file_id من الرسالة
+        file_id = None
+        if message.content_type == 'document':
+            file_id = message.document.file_id
+        elif message.content_type == 'photo':
+            file_id = message.photo[-1].file_id
+        elif message.content_type == 'video':
+            file_id = message.video.file_id
+        elif message.content_type == 'audio':
+            file_id = message.audio.file_id
+        
+        if file_id:
+            res = files_col.find_one({"file_id": file_id})
+            if res:
+                # حذف الرسالة الأصلية
+                try:
+                    bot.delete_message(chat_id, message.message_id)
+                except Exception as e:
+                    logging.error(f"Failed to delete forwarded message: {e}")
+                # إعادة إرسال الملف مع الأزرار، مع صلاحيات المرسل الأصلي
+                sender_id = message.from_user.id
+                has_perm = is_moderator(sender_id, res['menu_path'])
+                send_file_to_user(chat_id, res, has_perm)
+                return
+        # إذا لم يتم العثور على الملف، نستمر في المعالجة العادية (ربما رفع من المجموعة)
+        # (لكن عادةً نمنع الرفع من المجموعات للحفاظ على التنظيم)
+        return  # نكتفي بذلك في المجموعات
+
     if settings.get("status") == "inactive" and not is_admin(chat_id):
         bot.send_message(chat_id, "🚧 المنصة الأكاديمية تحت الصيانة الدورية حالياً. نعود إليكم فور الانتهاء قريباً.")
         return 
@@ -573,6 +607,12 @@ def universal_handler(message):
     path_str = get_path_string(chat_id)
     mode = admin_action_mode.get(chat_id)
     is_mod = is_moderator(chat_id, path_str)
+
+    # التأكد من أن المبادر بالإجراء هو نفس المستخدم الحالي (للمجموعات)
+    initiator = action_initiator.get(chat_id)
+    if mode and initiator and message.from_user.id != initiator:
+        # لا نسمح لأي شخص آخر بإكمال الإجراء
+        return
 
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id); bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية."); show_menu(chat_id); return
@@ -1055,31 +1095,34 @@ def universal_handler(message):
         return
 
 # ==========================================
-# 11. أزرار التحكم الجانبية (Inline Callbacks)
+# 11. أزرار التحكم الجانبية (Inline Callbacks) - معدلة بالكامل
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
 def handle_inline_callbacks(call):
-    chat_id = call.message.chat.id
-    bot.answer_callback_query(call.id)  # الإقرار فوراً لإيقاف دائرة الانتظار
-    
+    chat_id = call.message.chat.id          # الدردشة التي تحتوي الرسالة (خاصة أو مجموعة)
+    user_id = call.from_user.id             # الشخص الذي ضغط الزر
+    bot.answer_callback_query(call.id)      # إزالة دائرة الانتظار فوراً
+
     try: action, obj_id = call.data.split('_', 1)
     except: return
 
+    # ---------- إجراءات غير إدارية (متاحة للجميع) ----------
     if action == 'fv':
-        users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
+        # إضافة إلى المفضلة باستخدام user_id
+        users_col.update_one({"chat_id": user_id}, {"$addToSet": {"favorites": obj_id}})
         bot.send_message(chat_id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!")
         return
-        
+
     if action == 'rt':
         m = InlineKeyboardMarkup(row_width=5)
         m.add(*[InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)])
         try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
         except: pass
         return
-        
+
     if action == 'str':
         score, f_id = obj_id.split('_')
-        ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
+        ratings_col.update_one({"file_id": f_id, "user_id": user_id}, {"$set": {"score": int(score)}}, upsert=True)
         bot.send_message(chat_id, f"⭐️ تم حفظ تقييمك: {score}/10")
         try: bot.delete_message(chat_id, call.message.message_id)
         except: pass
@@ -1091,32 +1134,54 @@ def handle_inline_callbacks(call):
             bot.send_message(chat_id, f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}")
         return
 
+    # ---------- الإجراءات الإدارية (تحتاج صلاحيات) ----------
     f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
-    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
-        bot.send_message(chat_id, "❌ عذراً، لا تمتلك الصلاحية الكافية.")
+    if not f_doc:
+        bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
         return
+
+    if not is_moderator(user_id, f_doc['menu_path']):
+        bot.answer_callback_query(call.id, "❌ لا تمتلك الصلاحية الكافية.", show_alert=True)
+        return
+
+    # تعيين من بدأ الإجراء (للتحقق في universal_handler)
+    action_initiator[chat_id] = user_id
 
     if action == 'dl':
         files_col.delete_one({"_id": ObjectId(obj_id)})
-        log_action(chat_id, "DELETE_FILE", f_doc['name'])
+        log_action(user_id, "DELETE_FILE", f_doc['name'])
         try: bot.delete_message(chat_id, call.message.message_id)
         except: pass
-        show_menu(chat_id)
+        bot.answer_callback_query(call.id, "✅ تم حذف الملف بنجاح.")
+        # لا نستدعي show_menu هنا حتى لا نربك المجموعة، يمكن إرسال رسالة تأكيد
+        # لكن في الخاص قد نحتاجها، لذا نتحقق:
+        if call.message.chat.type == 'private':
+            show_menu(chat_id)
     elif action == 'rn':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "rename_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "✏️ الرجاء إرسال الاسم الجديد للملف الآن:")
     elif action == 'rp':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "replace_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "🔄 الرجاء إرسال الملف البديل الآن:")
     elif action == 'mv':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "move_file_dest"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل واضغط زر التأكيد.")
-        user_path[chat_id] = []; show_menu(chat_id)
-    elif action in ['up', 'dn', 'pn']:
-        if action == 'pn': files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
-        else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
-        bot.send_message(chat_id, "✅ تم تحديث الترتيب بنجاح.")
+        user_path[chat_id] = []
         show_menu(chat_id)
+    elif action in ['up', 'dn', 'pn']:
+        if action == 'pn':
+            files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
+        else:
+            files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
+        bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.")
+        if call.message.chat.type == 'private':
+            show_menu(chat_id)
 
 # ==========================================
 # 12. تشغيل السيرفر (Webhook Setup)
