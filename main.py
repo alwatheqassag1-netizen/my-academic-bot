@@ -25,14 +25,15 @@ if sys.version_info >= (3, 0):
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_TOKEN = os.environ.get("API_TOKEN", "").strip()
-MONGO_URI = os.environ.get("MONGO_URI", "").strip()
+API_TOKEN = os.environ.get("API_TOKEN", "7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A").strip()
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+EXPECTED_BOT_USERNAME = os.environ.get("EXPECTED_BOT_USERNAME", "AI_DS_Taiz_bot").strip()
 
 if not API_TOKEN:
-    raise RuntimeError("API_TOKEN is required in environment variables.")
+    raise RuntimeError("API_TOKEN is required.")
 if not MONGO_URI:
-    raise RuntimeError("MONGO_URI is required in environment variables.")
+    raise RuntimeError("MONGO_URI is required.")
 SUPER_ADMIN_ID = 6842543527
 
 START_TIME = datetime.utcnow()
@@ -200,7 +201,13 @@ def rename_in_structure(struct, old_k, new_k):
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
-BOT_USERNAME = bot.get_me().username
+bot_me = bot.get_me()
+BOT_USERNAME = bot_me.username
+if EXPECTED_BOT_USERNAME and BOT_USERNAME != EXPECTED_BOT_USERNAME:
+    raise RuntimeError(
+        f"Unexpected bot username: {BOT_USERNAME!r}. "
+        f"Expected {EXPECTED_BOT_USERNAME!r}. Check the token you deployed."
+    )
 
 # ==========================================
 # 5. دوال الصلاحيات المركزية
@@ -256,6 +263,17 @@ def safe_object_id(value):
         return ObjectId(str(value))
     except Exception:
         return None
+
+def normalize_text(value: str) -> str:
+    """تطبيع الاسم لتسهيل المطابقة من الأزرار النصية."""
+    if not value:
+        return ""
+    value = str(value)
+    value = re.sub(r'^[📌🖼️📄📁]\s*', '', value)
+    value = re.sub(r'\s+', ' ', value)
+    value = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', value)
+    value = value.strip().casefold()
+    return value
 
 def build_folder_button_label(path_str: str) -> str:
     if not path_str:
@@ -321,6 +339,11 @@ def resolve_selected_folder(chat_id, text):
         return None
     folder_name = text.replace("📁 ", "", 1).strip()
     path_str = get_path_string(chat_id)
+    candidates = list(folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]))
+    target_norm = normalize_text(folder_name)
+    for folder in candidates:
+        if normalize_text(folder.get("folder_name")) == target_norm:
+            return folder
     return folders_col.find_one({"parent_path": path_str, "folder_name": folder_name})
 
 def resolve_selected_file(chat_id, text):
@@ -330,35 +353,29 @@ def resolve_selected_file(chat_id, text):
 
     path_str = get_path_string(chat_id)
     raw_name = strip_file_button_prefix(text)
+    target_norm = normalize_text(raw_name)
 
-    candidates = []
+    all_docs = list(files_col.find({"menu_path": path_str}).sort([("sort_order", 1), ("_id", 1)]).limit(250))
+    if not all_docs:
+        return None
 
-    # مطابقة مباشرة بالاسم المحفوظ
-    candidates.extend(list(files_col.find({"menu_path": path_str, "name": raw_name}).limit(5)))
+    # 1) مطابقة مباشرة بعد التطبيع
+    for doc in all_docs:
+        if normalize_text(doc.get("name")) == target_norm:
+            return doc
+        if normalize_text(doc.get("caption")) == target_norm:
+            return doc
 
-    # مطابقة بالـ caption عند الحاجة
-    if not candidates:
-        candidates.extend(list(files_col.find({
-            "menu_path": path_str,
-            "$or": [
-                {"caption": raw_name},
-                {"caption": {"$regex": f"^{re.escape(raw_name)}$", "$options": "i"}},
-                {"name": {"$regex": f"^{re.escape(raw_name)}$", "$options": "i"}},
-            ]
-        }).limit(5)))
+    # 2) مطابقة بنهاية الاسم أو احتواء قوي
+    for doc in all_docs:
+        doc_name = normalize_text(doc.get("name"))
+        doc_caption = normalize_text(doc.get("caption"))
+        if target_norm and (doc_name.endswith(target_norm) or doc_caption.endswith(target_norm)):
+            return doc
+        if target_norm and (target_norm in doc_name or target_norm in doc_caption):
+            return doc
 
-    # مطابقة تقريبية لو كانت هناك رموز/مسافات مختلفة
-    if not candidates:
-        for doc in files_col.find({"menu_path": path_str}).limit(100):
-            doc_name = (doc.get("name") or "").strip()
-            if doc_name == raw_name:
-                candidates.append(doc)
-                break
-            if doc_name and strip_file_button_prefix(doc_name) == raw_name:
-                candidates.append(doc)
-                break
-
-    return candidates[0] if candidates else None
+    return None
 
 def show_file_keyboard(chat_id, has_perm):
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -456,6 +473,15 @@ def cleanup_deleted_file(file_id_str):
         )
     except Exception as exc:
         logging.error(f"Cleanup favorites error: {exc}")
+
+    # احتياط إضافي لو كانت بعض السجلات القديمة خزنت ObjectId كسلسلة أو بصيغة أخرى.
+    try:
+        users_col.update_many(
+            {"favorites": {"$regex": f"^{re.escape(file_id_str)}$"}},
+            {"$pull": {"favorites": file_id_str}}
+        )
+    except Exception as exc:
+        logging.error(f"Cleanup legacy favorites error: {exc}")
 
 def check_rate_limit(chat_id):
 
@@ -1051,22 +1077,33 @@ def universal_handler(message):
             bot.send_message(chat_id, "❌ التقييم يجب أن يكون من 1 إلى 10.")
             return
 
-        if text == "✅ نعم احذف" and admin_action_mode.get(chat_id) == "confirm_delete_file":
+        if admin_action_mode.get(chat_id) == "confirm_delete_file" and text == "✅ نعم احذف":
             fid = action_payload.get(chat_id)
             f_oid = safe_object_id(fid)
-            if f_oid:
-                f_doc = files_col.find_one({"_id": f_oid})
-                if f_doc:
-                    try:
-                        files_col.delete_one({"_id": f_oid})
-                        cleanup_deleted_file(str(f_oid))
-                        log_action(chat_id, "DELETE_FILE", f_doc.get("name", "file"))
-                        bot.send_message(chat_id, "✅ تم حذف الملف نهائياً من قاعدة البيانات.")
-                    except Exception as e:
-                        logging.error(f"Delete file error: {e}")
-                        bot.send_message(chat_id, "❌ تعذر حذف الملف.")
+            if not f_oid:
+                bot.send_message(chat_id, "❌ الملف غير موجود.")
+                clear_file_context(chat_id)
+                show_menu(chat_id)
+                return
+
+            f_doc = files_col.find_one({"_id": f_oid})
+            if not f_doc:
+                bot.send_message(chat_id, "❌ الملف غير موجود.")
+                clear_file_context(chat_id)
+                show_menu(chat_id)
+                return
+
+            try:
+                del_result = files_col.delete_one({"_id": f_oid})
+                cleanup_deleted_file(str(f_oid))
+                log_action(chat_id, "DELETE_FILE", f_doc.get("name", "file"))
+                if del_result.deleted_count == 1:
+                    bot.send_message(chat_id, "✅ تم حذف الملف نهائياً من قاعدة البيانات.")
                 else:
-                    bot.send_message(chat_id, "❌ الملف غير موجود.")
+                    bot.send_message(chat_id, "❌ لم يتم حذف الملف لأنّه لم يعد موجوداً.")
+            except Exception as e:
+                logging.error(f"Delete file error: {e}")
+                bot.send_message(chat_id, "❌ تعذر حذف الملف.")
             clear_file_context(chat_id)
             show_menu(chat_id)
             return
