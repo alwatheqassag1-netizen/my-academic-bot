@@ -29,7 +29,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 API_TOKEN = (os.environ.get("API_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip()
 MONGO_URI = (os.environ.get("MONGO_URI") or "").strip()
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
-EXPECTED_BOT_USERNAME = (os.environ.get("EXPECTED_BOT_USERNAME") or "AI_DS_Taiz_bot").strip()
+EXPECTED_BOT_USERNAME = (os.environ.get("EXPECTED_BOT_USERNAME") or os.environ.get("BOT_USERNAME") or "AI_DS_Taiz_bot").strip()
+PORT = int(os.environ.get("PORT", "5000"))
+PUBLIC_URL = (os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("PUBLIC_URL") or "").strip()
 
 if not API_TOKEN:
     raise RuntimeError("API_TOKEN is required in environment variables.")
@@ -209,6 +211,27 @@ if EXPECTED_BOT_USERNAME and BOT_USERNAME != EXPECTED_BOT_USERNAME:
         f"Unexpected bot username: {BOT_USERNAME!r}. "
         f"Expected {EXPECTED_BOT_USERNAME!r}. Check the token you deployed."
     )
+
+def setup_webhook():
+    """
+    تهيئة الـ webhook تلقائياً على Render أو أي استضافة توفر عنواناً عاماً.
+    إذا لم يتوفر PUBLIC_URL فسوف يعمل التطبيق فقط محلياً/بشكل يدوي.
+    """
+    if not PUBLIC_URL:
+        logging.warning("PUBLIC_URL is empty; webhook auto-setup skipped.")
+        return
+    webhook_url = f"{PUBLIC_URL.rstrip('/')}/webhook"
+    try:
+        bot.remove_webhook()
+    except Exception as exc:
+        logging.warning(f"remove_webhook warning: {exc}")
+    try:
+        ok = bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+        logging.info(f"Webhook setup result: {ok} -> {webhook_url}")
+    except Exception as exc:
+        logging.error(f"Webhook setup failed: {exc}")
+
+setup_webhook()
 
 # ==========================================
 # 5. دوال الصلاحيات المركزية
@@ -1801,4 +1824,4 @@ def redirect_to_folder(folder_id):
     return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=PORT)
