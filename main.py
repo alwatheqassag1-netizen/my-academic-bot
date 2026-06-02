@@ -179,7 +179,7 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     },
     "🌿 مستوى ثاني": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
     "☘️ مستوى ثالث": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
-    "🌳 مستوى رابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
+    "🌳 مستوى الرابع": {"📅 ترم أول": {}, "📅 ترم ثاني": {}},
     "📖 دليل القسم": {}
 }
 
@@ -1020,13 +1020,12 @@ def universal_handler(message):
         has_file_admin = is_moderator(chat_id, ctx_file.get("menu_path")) or is_owner(chat_id) or is_admin(chat_id)
 
         if text == "⭐ إضافة للمفضلة":
-            clear_file_context(chat_id)
             users_col.update_one(
                 {"chat_id": chat_id},
                 {"$addToSet": {"favorites": str(ctx_file["_id"])}},
                 upsert=True
             )
-            bot.send_message(chat_id, "✅ تمت إضافة الملف للمفضلة بنجاح.")
+            bot.send_message(chat_id, "✅ تمت إضافة الملف للمفضلة.")
             return
 
         if text == "📝 تفاصيل":
@@ -1046,9 +1045,9 @@ def universal_handler(message):
             admin_action_mode[chat_id] = "rename_file"
             action_payload[chat_id] = str(ctx_file["_id"])
             kb = ReplyKeyboardMarkup(resize_keyboard=True)
-            kb.add(KeyboardButton("❌ إلغاء"))
+            kb.add(KeyboardButton("🛑 إلغاء الأمر"))
             bot.send_message(chat_id, "✏️ أرسل الاسم الجديد للملف الآن:", reply_markup=kb)
-            clear_file_context(chat_id, remove_messages=True)
+            delete_context_messages(chat_id); file_context_state.pop(chat_id, None)
             return
 
         if text == "🗑️ حذف" and has_file_admin:
@@ -1063,15 +1062,15 @@ def universal_handler(message):
             admin_action_mode[chat_id] = "replace_file"
             action_payload[chat_id] = str(ctx_file["_id"])
             kb = ReplyKeyboardMarkup(resize_keyboard=True)
-            kb.add(KeyboardButton("❌ إلغاء"))
+            kb.add(KeyboardButton("🛑 إلغاء الأمر"))
             bot.send_message(chat_id, "🔄 أرسل الملف البديل الآن:", reply_markup=kb)
-            clear_file_context(chat_id, remove_messages=True)
+            delete_context_messages(chat_id); file_context_state.pop(chat_id, None)
             return
 
         if text == "📦 نقل" and has_file_admin:
             admin_action_mode[chat_id] = "move_file_dest"
             action_payload[chat_id] = str(ctx_file["_id"])
-            clear_file_context(chat_id, remove_messages=True)
+            delete_context_messages(chat_id); file_context_state.pop(chat_id, None)
             user_path[chat_id] = []
             bot.send_message(chat_id, "📦 تصفح للوصول للمسار الجديد ثم اضغط زر التأكيد.")
             show_menu(chat_id)
@@ -1082,8 +1081,7 @@ def universal_handler(message):
                 files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$inc": {"sort_order": -1}})
                 bot.send_message(chat_id, "✅ تم نقل الملف للأعلى.")
             except Exception as e:
-                logging.error(f"Sort up error: {e}")
-                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية.")
+                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية: {e}")
             return
 
         if text == "🔽 للأسفل" and has_file_admin:
@@ -1091,8 +1089,7 @@ def universal_handler(message):
                 files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$inc": {"sort_order": 1}})
                 bot.send_message(chat_id, "✅ تم نقل الملف للأسفل.")
             except Exception as e:
-                logging.error(f"Sort down error: {e}")
-                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية.")
+                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية: {e}")
             return
 
         if text == "📌 تثبيت" and has_file_admin:
@@ -1100,7 +1097,6 @@ def universal_handler(message):
                 files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$set": {"sort_order": -999999}})
                 bot.send_message(chat_id, "✅ تم تثبيت الملف في الأعلى.")
             except Exception as e:
-                logging.error(f"Pin error: {e}")
                 bot.send_message(chat_id, f"❌ تعذر تثبيت الملف: {e}")
             return
 
