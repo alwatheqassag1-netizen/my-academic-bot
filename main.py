@@ -396,6 +396,54 @@ def info_command_handler(message):
 # 9. ديناميكية القوائم وتوليد واجهة المستخدم
 # ==========================================
 
+
+
+def show_file_manager(chat_id):
+    """
+    وضع إدارة ملفات مستقل للمشرفين:
+    - تصفح المجلدات
+    - حذف الملفات مباشرة من أزرار inline
+    """
+    path = user_path.get(chat_id, [])
+    path_str = get_path_string(chat_id)
+    current_menu = get_menu_by_path(path)
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+
+    # Controls
+    markup.add(KeyboardButton("🔙 الرجوع للقائمة السابقة"), KeyboardButton("🔝 القائمة الرئيسية"))
+    markup.add(KeyboardButton("🔄 تحديث"), KeyboardButton("🚪 خروج من إدارة الملفات"))
+
+    # Folders from academic structure
+    if isinstance(current_menu, dict):
+        for key in current_menu.keys():
+            markup.add(KeyboardButton(key))
+
+    # Dynamic folders from DB
+    for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
+        markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
+
+    # Message
+    bot.send_message(
+        chat_id,
+        f"🗑️ *إدارة الملفات*\n\n📂 المسار الحالي:\n`{path_str}`" if path_str else "🗑️ *إدارة الملفات*\n\n🏠 الجذر:",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+
+    # File buttons - inline delete directly
+    files = list(files_col.find({"menu_path": path_str}).sort([("sort_order", 1), ("_id", 1)]).limit(50))
+    if not files:
+        bot.send_message(chat_id, "لا توجد ملفات في هذا المسار.")
+        return
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for f in files:
+        icon = "📌" if f.get("type") == "text" else "🖼️" if f.get("type") == "photo" else "📄"
+        kb.add(InlineKeyboardButton(f"🗑️ حذف {icon} {f.get('name', 'ملف')}", callback_data=f"mfdel_{str(f['_id'])}"))
+
+    bot.send_message(chat_id, "اضغط على أي ملف لحذفه مباشرة:", reply_markup=kb)
+
+
 def show_menu(chat_id):
     path, path_str = user_path.get(chat_id, []), get_path_string(chat_id)
     current_menu = get_menu_by_path(path)
@@ -424,7 +472,7 @@ def show_menu(chat_id):
         markup.add("📊 نشاط المشرفين", "🔍 كشف الملفات المكررة")
         markup.add("💾 النسخ الاحتياطي اليدوي", "✏️ تعديل نصوص البوت")
         markup.add("📢 إدارة الإعلانات", "🏷️ إدارة الأرشفة")
-        markup.add("📊 إحصائيات المقررات")
+        markup.add("⚙️ إدارة الملفات", "📊 إحصائيات المقررات")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "👑 *لوحة المشرف الرئيسي:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -445,7 +493,7 @@ def show_menu(chat_id):
 
     if path_str == "GLOBAL_ADMIN_PANEL":
         markup.add("📊 حالة النظام", "🔍 كشف الملفات المكررة")
-        markup.add("📊 إحصائيات المقررات")
+        markup.add("⚙️ إدارة الملفات")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "🛡️ *لوحة المشرف العام:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -575,10 +623,56 @@ def universal_handler(message):
         bot.send_message(chat_id, "💼 تم إنهاء وضع الطالب، عدت الآن للإدارة.")
         show_menu(chat_id); return
 
+
+    if mode == "file_manager":
+        # أوامر التنقل في وضع إدارة الملفات
+        if text == "🚪 خروج من إدارة الملفات":
+            reset_modes(chat_id)
+            user_path[chat_id] = []
+            bot.send_message(chat_id, "✅ تم الخروج من وضع إدارة الملفات.")
+            show_menu(chat_id)
+            return
+
+        if text == "🔝 القائمة الرئيسية":
+            user_path[chat_id] = []
+            show_file_manager(chat_id)
+            return
+
+        if text == "🔙 الرجوع للقائمة السابقة":
+            if user_path.get(chat_id):
+                user_path[chat_id].pop()
+            show_file_manager(chat_id)
+            return
+
+        if text == "🔄 تحديث":
+            show_file_manager(chat_id)
+            return
+
+        # التنقل داخل الأقسام
+        if text not in ["⚙️ إدارة الملفات", "🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية", "🔄 تحديث", "🚪 خروج من إدارة الملفات"]:
+            current_menu = get_menu_by_path(user_path.get(chat_id, []))
+            if text in global_academic_structure.keys():
+                user_path[chat_id] = [text]
+                show_file_manager(chat_id)
+                return
+            if isinstance(current_menu, dict) and text in current_menu.keys():
+                user_path[chat_id].append(text)
+                show_file_manager(chat_id)
+                return
+            if text.startswith("📁 "):
+                folder_name = text.replace("📁 ", "").strip()
+                user_path[chat_id].append(folder_name)
+                show_file_manager(chat_id)
+                return
+
+        # أي نص آخر في هذا الوضع: تجاهل مع إعادة العرض
+        show_file_manager(chat_id)
+        return
+
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم", "⚙️ إدارة الملفات"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
@@ -598,6 +692,12 @@ def universal_handler(message):
         elif text == "🛡️ لوحة المشرف العام" and is_admin(chat_id): user_path[chat_id] = ["GLOBAL_ADMIN_PANEL"]
         elif text == "👥 إدارة المشرفين" and is_owner(chat_id): user_path[chat_id] = ["MANAGE_ADMINS"]
         elif text == "🔑 صلاحيات المشرفين" and is_owner(chat_id): user_path[chat_id] = ["ADMIN_PERMISSIONS"]
+        elif text == "⚙️ إدارة الملفات" and (is_owner(chat_id) or is_admin(chat_id)):
+            reset_modes(chat_id)
+            user_path[chat_id] = []
+            admin_action_mode[chat_id] = "file_manager"
+            show_file_manager(chat_id)
+            return
         elif text == "📞 التواصل مع المشرف العام":
             dev_msg = settings.get("dev_text", DEFAULT_DEV_TEXT)
             markup = InlineKeyboardMarkup(row_width=1)
@@ -1034,7 +1134,7 @@ def universal_handler(message):
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
 # ==========================================
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'dl_', 'rl_')))
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'dl_', 'rl_', 'mfdel_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
     try:
@@ -1046,6 +1146,36 @@ def handle_inline_callbacks(call):
         f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
     except Exception:
         f_doc = None
+
+    if action == 'mfdel':
+        if not f_doc:
+            bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
+            return
+
+        # حذف مباشر من وضع إدارة الملفات
+        files_col.delete_one({"_id": f_doc["_id"]})
+        log_action(chat_id, "DELETE_FILE_MF", f_doc.get('name', 'file'))
+
+        try:
+            bot.answer_callback_query(call.id, "🗑️ تم حذف الملف مباشرة.", show_alert=True)
+        except Exception:
+            pass
+
+        try:
+            bot.edit_message_text(
+                f"🗑️ تم حذف الملف: {f_doc.get('name', 'ملف')}",
+                chat_id,
+                call.message.message_id
+            )
+        except Exception:
+            pass
+
+        # إعادة عرض لوحة الإدارة الحالية
+        try:
+            show_file_manager(chat_id)
+        except Exception:
+            pass
+        return
 
     if action == 'rl':
         if f_doc:
