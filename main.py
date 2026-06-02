@@ -25,9 +25,9 @@ if sys.version_info >= (3, 0):
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_TOKEN = os.environ.get("API_TOKEN", "7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A")
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSy")
+API_TOKEN = os.environ.get("API_TOKEN", "")
+MONGO_URI = os.environ.get("MONGO_URI", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 SUPER_ADMIN_ID = 6842543527
 
 START_TIME = datetime.utcnow()
@@ -120,7 +120,7 @@ if settings_col.count_documents({"_id": "bot_general_settings"}) == 0:
     settings_col.insert_one({"_id": "bot_general_settings", "status": "active", "emergency_flags": {"ai": False, "upload": False, "search": False, "ads": False}})
 
 # ==========================================
-# 4. الهيكل الأكاديمي الديناميكي (Hybrid Structure)
+# 4. الهيكل الأكاديمي الديناميكي
 # ==========================================
 
 ACADEMIC_STRUCTURE_DEFAULT = {
@@ -173,7 +173,6 @@ ACADEMIC_STRUCTURE_DEFAULT = {
     "📖 دليل القسم": {}
 }
 
-# مزامنة الهيكل الجديد لضمان تحديث (الترم الثاني) ومجلداته في قاعدة البيانات فوراً
 db_struct = settings_col.find_one({"_id": "academic_structure"})
 term2_keys = db_struct.get("data", {}).get("🌱 مستوى أول", {}).get("📅 ترم ثاني", {}).keys() if db_struct else []
 
@@ -195,10 +194,13 @@ def rename_in_structure(struct, old_k, new_k):
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
-BOT_USERNAME = bot.get_me().username
+try:
+    BOT_USERNAME = bot.get_me().username
+except Exception:
+    BOT_USERNAME = ""
 
 # ==========================================
-# 5. دوال الصلاحيات المركزية (Roles System)
+# 5. دوال الصلاحيات المركزية
 # ==========================================
 
 def is_owner(chat_id): return chat_id == SUPER_ADMIN_ID
@@ -247,38 +249,55 @@ def reset_modes(chat_id, clear_upload=True):
     action_payload.pop(chat_id, None)
 
 def check_rate_limit(chat_id):
-    now = time.time()
-    if chat_id in RATE_LIMIT_DICT and now - RATE_LIMIT_DICT[chat_id] < 0.6: return False
-    RATE_LIMIT_DICT[chat_id] = now
     return True
 
+def check_ai_quota(chat_id):
+    if is_owner(chat_id): return True
+    user = users_col.find_one({"chat_id": chat_id})
+    if not user: return True
+    now = datetime.utcnow()
+    last_reset = user.get("ai_reset_time", now - timedelta(days=1))
+    if now - last_reset > timedelta(days=1):
+        users_col.update_one({"chat_id": chat_id}, {"$set": {"ai_count": 1, "ai_reset_time": now}}, upsert=True)
+        return True
+    if user.get("ai_count", 0) < 7:
+        users_col.update_one({"chat_id": chat_id}, {"$inc": {"ai_count": 1}})
+        return True
+    return False
+
 # ==========================================
-# 6. نظام الذكاء الاصطناعي (مُحسّن بالسياق)
+# 6. نظام الذكاء الاصطناعي
 # ==========================================
 
 def get_ai_response(prompt, chat_id):
-    cached = kb_col.find_one({"prompt": prompt})
-    if cached: return cached["response"]
-
     history = ai_memory.get(chat_id, [])
-    contents = []
-    for h in history:
-        contents.append({"role": "user", "parts": [{"text": h['prompt']}]})
-        contents.append({"role": "model", "parts": [{"text": h['response']}]})
+    contents = [{"role": "user", "parts": [{"text": h['prompt']}]} if i % 2 == 0 else {"role": "model", "parts": [{"text": h['response']}]} for i, h in enumerate(history)]
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
     if GEMINI_API_KEY and not GEMINI_API_KEY.startswith("AIzaSy"):
-        for model in ["gemini-2.0-flash-lite-preview-02-05", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                res = requests.post(url, json={"contents": contents}, headers={'Content-Type': 'application/json'}, timeout=10)
-                if res.status_code == 200:
-                    ans = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-                    kb_col.insert_one({"prompt": prompt, "response": ans})
-                    ai_usage_col.insert_one({"chat_id": chat_id, "timestamp": datetime.utcnow()})
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}",
+                    json={"contents": contents}, timeout=8
+                )
+                if response.status_code == 200:
+                    ans = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
                     return ans
-            except: continue
-    return "🤖 نعتذر، هناك ضغط شديد حالياً على الخوادم. يرجى إعادة المحاولة لاحقاً."
+            except Exception:
+                pass
+
+    try:
+        response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=openai&seed=42", timeout=12)
+        if response.status_code == 200 and response.text: return response.text.strip()
+    except Exception: pass
+
+    try:
+        response = requests.get(f"https://text.pollinations.ai/{requests.utils.quote(prompt)}?model=mistral&seed=42", timeout=12)
+        if response.status_code == 200 and response.text: return response.text.strip()
+    except Exception: pass
+
+    return "🤖 نعتذر، تعذر الوصول إلى جميع خوادم الذكاء الاصطناعي في هذه اللحظة."
 
 # ==========================================
 # 7. الرفع المتسلسل الذكي المتقدم
@@ -348,13 +367,16 @@ def start_command(message):
     if len(command_args) > 1:
         param = command_args[1]
         try:
-            f_obj = files_col.find_one({"_id": ObjectId(param.replace("folder_", ""))})
-            if f_obj:
-                if param.startswith("folder_") and f_obj.get('menu_path'):
+            if param.startswith("folder_"):
+                folder_id = param.replace("folder_", "")
+                f_obj = files_col.find_one({"_id": ObjectId(folder_id)})
+                if f_obj and f_obj.get('menu_path'):
                     user_path[chat_id] = f_obj['menu_path'].split(' > ')
                     bot.send_message(chat_id, f"📂 تم التوجيه إلى المسار:\n`{f_obj['menu_path']}`", parse_mode="Markdown")
                     show_menu(chat_id); return
-                else:
+            else:
+                f_obj = files_col.find_one({"_id": ObjectId(param)})
+                if f_obj:
                     files_col.update_one({"_id": f_obj["_id"]}, {"$inc": {"downloads": 1}})
                     send_file_to_user(chat_id, f_obj, is_moderator(chat_id, f_obj['menu_path'])); return
         except: pass
@@ -387,20 +409,14 @@ def show_menu(chat_id):
     if mode == "navigate_to_assign":
         markup.add(KeyboardButton("✅ تعيين مشرف لهذا القسم"), KeyboardButton("🛑 إلغاء الأمر"))
 
-    # [1] الصفحة الرئيسية
     if not path:
-        for key in global_academic_structure.keys():
-            markup.add(KeyboardButton(key))
+        for key in global_academic_structure.keys(): markup.add(KeyboardButton(key))
         markup.add(KeyboardButton("🌟 ميزات الطالب"), KeyboardButton("📞 التواصل مع المشرف العام"))
-        if is_owner(chat_id) and not testing_mode.get(chat_id):
-            markup.add(KeyboardButton("👑 لوحة المشرف الرئيسي"))
-        if is_admin(chat_id) and not is_owner(chat_id) and not testing_mode.get(chat_id):
-            markup.add(KeyboardButton("🛡️ لوحة المشرف العام"))
-        if is_admin(chat_id) or is_moderator(chat_id):
-            markup.add(KeyboardButton("🛑 إنهاء العرض كمستخدم" if testing_mode.get(chat_id) else "👤 عرض كمستخدم"))
+        if is_owner(chat_id) and not testing_mode.get(chat_id): markup.add(KeyboardButton("👑 لوحة المشرف الرئيسي"))
+        if is_admin(chat_id) and not is_owner(chat_id) and not testing_mode.get(chat_id): markup.add(KeyboardButton("🛡️ لوحة المشرف العام"))
+        if is_admin(chat_id) or is_moderator(chat_id): markup.add(KeyboardButton("🛑 إنهاء العرض كمستخدم" if testing_mode.get(chat_id) else "👤 عرض كمستخدم"))
         bot.send_message(chat_id, "⚙️ القائمة الرئيسية:", reply_markup=markup); return
 
-    # [2] اللوحات الإدارية
     if path_str == "SUPER_ADMIN_PANEL":
         markup.add("👥 إدارة المشرفين", "🔑 صلاحيات المشرفين")
         markup.add("📈 إحصائيات النظام", "📊 حالة النظام")
@@ -408,7 +424,7 @@ def show_menu(chat_id):
         markup.add("📊 نشاط المشرفين", "🔍 كشف الملفات المكررة")
         markup.add("💾 النسخ الاحتياطي اليدوي", "✏️ تعديل نصوص البوت")
         markup.add("📢 إدارة الإعلانات", "🏷️ إدارة الأرشفة")
-        markup.add("⭐️ التقييمات", "📊 إحصائيات المقررات")
+        markup.add("📊 إحصائيات المقررات")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "👑 *لوحة المشرف الرئيسي:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -429,15 +445,14 @@ def show_menu(chat_id):
 
     if path_str == "GLOBAL_ADMIN_PANEL":
         markup.add("📊 حالة النظام", "🔍 كشف الملفات المكررة")
-        markup.add("📊 إحصائيات المقررات", "⭐️ التقييمات")
+        markup.add("📊 إحصائيات المقررات")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "🛡️ *لوحة المشرف العام:*", reply_markup=markup, parse_mode="Markdown"); return
 
-    # [3] الأقسام الخاصة بالطالب
     if path_str == "STUDENT_FEATURES":
         markup.add("🤖 المساعد الذكي (AI)", "🔍 بحث عن ملف")
         markup.add("🔥 الملفات الأكثر شعبية", "🆕 تحديثات اليوم")
-        markup.add("📢 إعلانات الدفعة", "⭐ ملفاتي المفضلة")
+        markup.add("📢 إعلانات الدفعة")
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         bot.send_message(chat_id, "🌟 *ميزات الطالب:*", reply_markup=markup, parse_mode="Markdown"); return
 
@@ -446,8 +461,7 @@ def show_menu(chat_id):
         favs = u_data.get("favorites", []) if u_data else []
         markup.add("🔙 الرجوع للقائمة الرئيسية")
         for fav_id in favs:
-            if fav_id.startswith("path:"):
-                markup.add(KeyboardButton(f"📁 {fav_id.replace('path:', '')}"))
+            if fav_id.startswith("path:"): markup.add(KeyboardButton(f"📁 {fav_id.replace('path:', '')}"))
         bot.send_message(chat_id, "⭐ *ملفاتك وأقسامك المفضلة:*", reply_markup=markup, parse_mode="Markdown")
         for fav_id in favs:
             if not fav_id.startswith("path:"):
@@ -456,15 +470,11 @@ def show_menu(chat_id):
         if not favs: bot.send_message(chat_id, "لا توجد ملفات أو أقسام في المفضلة.")
         return
 
-    # [4] الأقسام والمجلدات الفعلية
     if isinstance(current_menu, dict):
         for key in current_menu.keys(): markup.add(KeyboardButton(key))
             
-    # زر اللجنة العلمية يظهر حصرياً داخل مستوى أول
-    if path_str == "🌱 مستوى أول":
-        markup.add(KeyboardButton("اللجنة العلمية"))
+    if path_str == "🌱 مستوى أول": markup.add(KeyboardButton("اللجنة العلمية"))
 
-    # استدعاء المجلدات الديناميكية للمسار الحالي (مهم جداً لتشغيل مجلدات المشرفين)
     for db_folder in folders_col.find({"parent_path": path_str}).sort([("sort_order", 1), ("folder_name", 1)]):
         markup.add(KeyboardButton(f"📁 {db_folder['folder_name']}"))
         
@@ -472,56 +482,59 @@ def show_menu(chat_id):
         icon = "📌" if db_file.get("type") == "text" else "🖼️" if db_file.get("type") == "photo" else "📄"
         markup.add(KeyboardButton(f"{icon} {db_file['name']}"))
         
-    # أزرار التنقل السفلية
     if path: 
         if len(path) == 1: markup.add("🔙 الرجوع للقائمة الرئيسية")
         else: markup.add("🔙 الرجوع للقائمة السابقة", "🔝 القائمة الرئيسية")
         
-    # الصلاحيات داخل المسار (للمشرفين)
     if is_moderator(chat_id, path_str):
         markup.add("➕ إضافة ملف/نص", "📂 إضافة مجلد")
-        if current_menu is None or len(path) > 0: # تفعيل إعادة التسمية لجميع المجلدات
+        if current_menu is None or len(path) > 0: 
             markup.add("✏️ إعادة تسمية القسم", "🗑️ حذف القسم")
             markup.add("🔼 نقل مجلد للأعلى", "🔽 نقل مجلد للأسفل")
-    else:
-        if current_menu is None or len(path) > 1:
-            markup.add("📤 مساهمة بملف")
     
     if not is_owner(chat_id) or testing_mode.get(chat_id):
         if path_str: markup.add(KeyboardButton("⭐ إضافة هذا القسم للمفضلة"))
             
     bot.send_message(chat_id, f"📂 المسار الحالي:\n`{path_str}`" if path_str else "🏠 الرئيسية:", reply_markup=markup, parse_mode="Markdown")
 
+# ==========================================
+# دالة بناء وإرسال واجهة الملف للمستخدم
+# ==========================================
+
 def send_file_to_user(chat_id, res, has_perm):
     try:
-        if not res: return
+        if not res:
+            return
+
         markup = InlineKeyboardMarkup(row_width=2)
         file_id_str = str(res['_id'])
-        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
-        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
 
+        # فقط إعادة تسمية / حذف للمشرفين
         if has_perm and not testing_mode.get(chat_id):
-            markup.add(InlineKeyboardButton("✏️ تسمية", callback_data=f"rn_{file_id_str}"), InlineKeyboardButton("🔄 استبدال", callback_data=f"rp_{file_id_str}"))
-            markup.add(InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}"), InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}"))
-            markup.add(InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"), InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}"))
-            markup.add(InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}"))
-            
-        markup.add(InlineKeyboardButton("🔗 مشاركة", url=share_url), InlineKeyboardButton("📂 عرض المقرر", url=deep_folder_url))
-        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"), InlineKeyboardButton("⭐ تقييم", callback_data=f"rt_{file_id_str}"))
-        markup.add(InlineKeyboardButton("❤️ المفضلة", callback_data=f"fv_{file_id_str}"))
+            markup.add(
+                InlineKeyboardButton("✏️ إعادة تسمية", callback_data=f"rn_{file_id_str}"),
+                InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}")
+            )
 
-        file_type, file_id, caption = res.get('type', 'document'), res.get('file_id'), res.get('caption') or res.get('name', 'وثيقة')
+        # أزرار عامة بسيطة
+        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
+        markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
+        markup.add(InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}"))
+
+        file_type = res.get('type', 'document')
+        file_id = res.get('file_id')
+        caption = res.get('caption') or res.get('name', 'وثيقة')
         up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-        
-        ratings = list(ratings_col.find({"file_id": file_id_str}))
-        avg_rt = sum(r['score'] for r in ratings)/len(ratings) if ratings else 0.0
-        
-        caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)} | ⭐️ {avg_rt:.1f}/10"
+        caption += f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)}"
 
-        if file_type == 'text': bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
-        elif file_type == 'photo' and file_id: bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
-        elif file_id: bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
-    except Exception as e: logging.error(f"Send Error: {e}")
+        if file_type == 'text':
+            bot.send_message(chat_id, res.get('content', res['name']), reply_markup=markup)
+        elif file_type == 'photo' and file_id:
+            bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+        elif file_id:
+            bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Send Error: {e}")
 
 # ==========================================
 # 10. المعالج المركزي (Router)
@@ -530,8 +543,12 @@ def send_file_to_user(chat_id, res, has_perm):
 @bot.message_handler(content_types=['text', 'document', 'photo', 'video', 'audio'])
 def universal_handler(message):
     chat_id = message.chat.id
+    settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     
-    # إعفاء تام للملفات والوسائط من الـ Rate Limit لتجنب ضياع الحزم (Batch Fix)
+    if settings.get("status") == "inactive" and not is_admin(chat_id):
+        bot.send_message(chat_id, "🚧 المنصة الأكاديمية تحت الصيانة الدورية حالياً. نعود إليكم فور الانتهاء قريباً.")
+        return 
+        
     if message.content_type == 'text':
         if not check_rate_limit(chat_id): return
         
@@ -540,7 +557,6 @@ def universal_handler(message):
     user_data = users_col.find_one({"chat_id": chat_id})
     if user_data and user_data.get("blocked"): return
     
-    settings = settings_col.find_one({"_id": "bot_general_settings"}) or {}
     text = message.text if message.content_type == 'text' else ""
     path_str = get_path_string(chat_id)
     mode = admin_action_mode.get(chat_id)
@@ -549,7 +565,6 @@ def universal_handler(message):
     if text == "🛑 إلغاء الأمر":
         reset_modes(chat_id); bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية."); show_menu(chat_id); return
 
-    # [ملاحة العرض كمستخدم]
     if text == "👤 عرض كمستخدم" and (is_admin(chat_id) or is_moderator(chat_id)):
         reset_modes(chat_id); testing_mode[chat_id] = True; user_path[chat_id] = []
         bot.send_message(chat_id, "👀 وضع الطالب مفعل: أنت الآن تتصفح المنصة كطالب عادي بدون أي صلاحيات إدارية.")
@@ -560,16 +575,13 @@ def universal_handler(message):
         bot.send_message(chat_id, "💼 تم إنهاء وضع الطالب، عدت الآن للإدارة.")
         show_menu(chat_id); return
 
-    # [اللجنة العلمية الديناميكية - كزر نصي وليس مجلداً]
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
-    # [ملاحة القوائم المباشرة والديناميكية]
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
     
     current_menu = get_menu_by_path(user_path.get(chat_id, []))
     
-    # التقاط مجلدات الهيكل الأكاديمي التي ليست في الرئيسية
     if text not in main_nav and isinstance(current_menu, dict) and text in current_menu.keys():
         if mode not in ["navigate_to_assign", "move_file_dest"]: reset_modes(chat_id)
         user_path[chat_id].append(text)
@@ -582,7 +594,6 @@ def universal_handler(message):
         elif text == "🔙 الرجوع للقائمة السابقة" and user_path.get(chat_id): user_path[chat_id].pop()
         elif text in global_academic_structure.keys(): user_path[chat_id] = [text]
         elif text == "🌟 ميزات الطالب": user_path[chat_id] = ["STUDENT_FEATURES"]
-        elif text == "⭐ ملفاتي المفضلة": user_path[chat_id] = ["FAVORITES"]
         elif text == "👑 لوحة المشرف الرئيسي" and is_owner(chat_id): user_path[chat_id] = ["SUPER_ADMIN_PANEL"]
         elif text == "🛡️ لوحة المشرف العام" and is_admin(chat_id): user_path[chat_id] = ["GLOBAL_ADMIN_PANEL"]
         elif text == "👥 إدارة المشرفين" and is_owner(chat_id): user_path[chat_id] = ["MANAGE_ADMINS"]
@@ -600,14 +611,12 @@ def universal_handler(message):
             bot.send_message(chat_id, dev_msg, reply_markup=markup, parse_mode="Markdown"); return
         show_menu(chat_id); return
 
-    # [إضافة المسار للمفضلة]
     if text == "⭐ إضافة هذا القسم للمفضلة":
         if path_str:
             users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": "path:" + path_str}})
             bot.send_message(chat_id, "✅ تم إضافة القسم للمفضلة بنجاح.")
         return
 
-    # [الرفع الذكي الدفعي للمشرفين والطلاب بمهلة موسعة]
     if message.content_type in ['document', 'photo', 'video', 'audio'] and upload_mode.get(chat_id):
         if settings.get("emergency_flags", {}).get("upload", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 عذراً، استقبال الملفات معطل حالياً للصيانة."); return
@@ -619,9 +628,6 @@ def universal_handler(message):
         upload_timers[chat_id].start()
         return
 
-    if settings.get("status") == "inactive" and not is_admin(chat_id):
-        bot.send_message(chat_id, "🚧 المنصة تحت الصيانة. نعود قريباً."); return
-
     if text == "📦 أنقل إلى هذا القسم" and mode == "move_file_dest":
         f_id = action_payload.get(chat_id)
         if f_id:
@@ -629,12 +635,11 @@ def universal_handler(message):
             log_action(chat_id, "MOVE_FILE", f"Moved to {path_str}")
         bot.send_message(chat_id, "✅ تم تنفيذ النقل بنجاح."); reset_modes(chat_id); show_menu(chat_id); return
 
-    # [العمليات الإدارية للأدمن الرئيسي والعام]
     if text == "➕ إضافة مشرف عام" and is_owner(chat_id):
         reset_modes(chat_id); admin_action_mode[chat_id] = "add_glb"
         bot.send_message(chat_id, "أرسل المعرف الرقمي (ID) للمشرف:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
 
-    if text == "➕ إضافة مشرف مخصص لمسار" or text == "🛠 إدارة المشرف المخصص" and is_owner(chat_id):
+    if (text == "➕ إضافة مشرف مخصص لمسار" or text == "🛠 إدارة المشرف المخصص") and is_owner(chat_id):
         reset_modes(chat_id); admin_action_mode[chat_id] = "navigate_to_assign"; user_path[chat_id] = []
         bot.send_message(chat_id, "📍 يرجى تصفح الأقسام للوصول للمقرر المطلوب، ثم اضغط (✅ تعيين مشرف لهذا القسم)."); show_menu(chat_id); return
 
@@ -795,6 +800,11 @@ def universal_handler(message):
     if text == "🤖 المساعد الذكي (AI)":
         if settings.get("emergency_flags", {}).get("ai", False) and not is_owner(chat_id):
             bot.send_message(chat_id, "🚧 المساعد الذكي معطل مؤقتاً للصيانة."); return
+        
+        if not check_ai_quota(chat_id):
+            bot.send_message(chat_id, "⚠️ لقد استنفدت محاولاتك اليومية (7/7). سيتم تجديدها تلقائياً غداً.")
+            return
+            
         reset_modes(chat_id); admin_action_mode[chat_id] = "ai_chat"
         if chat_id not in ai_memory: ai_memory[chat_id] = []
         bot.send_message(chat_id, "🤖 أهلاً بك، تفضل بطرح سؤالك أو استفسارك الأكاديمي:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
@@ -846,7 +856,6 @@ def universal_handler(message):
         bot.send_message(chat_id, f"👥 إجمالي المستخدمين المسجلين: {users_col.count_documents({})}")
         return
 
-    # [أدوات المشرف الرئيسي والعام مع المعالجة الكاملة]
     if text == "📊 حالة النظام" and is_admin(chat_id):
         try:
             u_c, f_c, d_c = users_col.count_documents({}), files_col.count_documents({}), folders_col.count_documents({})
@@ -871,14 +880,6 @@ def universal_handler(message):
         for s in stats: msg += f"📁 `{s['_id']}`\n📄 الملفات: {s['count']} | 🔻 عمليات التحميل: {s['downloads']}\n\n"
         bot.send_message(chat_id, msg if stats else "لا توجد إحصائيات كافية للمقررات.", parse_mode="Markdown"); return
 
-    if text == "⭐️ التقييمات" and is_admin(chat_id):
-        top = list(ratings_col.aggregate([{"$group": {"_id": "$file_id", "avg": {"$avg": "$score"}, "cnt": {"$sum": 1}}}, {"$sort": {"avg": -1}}, {"$limit": 10}]))
-        msg = "⭐️ *قائمة أعلى الملفات تقييماً:*\n"
-        for r in top:
-            f = files_col.find_one({"_id": ObjectId(r["_id"])})
-            if f: msg += f"• {f['name']} | متوسط: {r['avg']:.1f} ({r['cnt']} أصوات)\n"
-        bot.send_message(chat_id, msg if top else "لا توجد تقييمات مسجلة بعد.", parse_mode="Markdown"); return
-
     if text == "📝 سجل العمليات" and is_owner(chat_id):
         try:
             logs = list(action_logs_col.find().sort("timestamp", -1).limit(20))
@@ -893,15 +894,22 @@ def universal_handler(message):
 
     if text == "📈 إحصائيات النظام" and (is_owner(chat_id) or "stats" in get_admin_permissions(chat_id)):
         all_u = list(users_col.find())
-        sm = f"📊 إجمالي المشتركين بالمنصة: {len(all_u)}\n"
-        for u in all_u: sm += f"• {u.get('first_name', '-')} | `{u.get('chat_id')}`\n"
+        sm = f"📊 إجمالي المشتركين بالمنصة: {len(all_u)}\n\n"
+        for u in all_u:
+            name = u.get('first_name', '-')
+            uid = u.get('chat_id', '0')
+            uname = u.get('username', 'لا يوجد')
+            sm += f"• {name} | `{uid}` | @{uname}\n"
+            
         if len(sm) > 3800:
-            bio = io.BytesIO(sm.encode('utf-8')); bio.name = "Users_Stats.txt"
+            bio = io.BytesIO(sm.encode('utf-8'))
+            bio.name = "Users_Stats.txt"
             bot.send_document(chat_id, bio, caption="📊 كشف تفصيلي بالطلاب")
-        else: bot.send_message(chat_id, sm, parse_mode="Markdown")
+        else: 
+            bot.send_message(chat_id, sm, parse_mode="Markdown")
         return
 
-    if text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين" and is_owner(chat_id):
+    if (text == "📊 نشاط المشرفين" or text == "📊 لوحة نشاط المشرفين") and is_owner(chat_id):
         logs = list(action_logs_col.aggregate([{"$group": {"_id": "$admin_name", "count": {"$sum": 1}}}]))
         msg = "📊 *إحصائيات نشاط المشرفين:*\n"
         for l in logs: msg += f"• {l['_id']}: {l['count']} إجراء مسجل\n"
@@ -936,13 +944,7 @@ def universal_handler(message):
         log_action(chat_id, "BOT_TOGGLE", f"Set bot status to {new_status}")
         bot.send_message(chat_id, f"✅ تم {'إيقاف' if new_status == 'inactive' else 'تشغيل'} البوت بنجاح."); show_menu(chat_id); return
 
-    # [العمليات الإدارية داخل الأقسام الديناميكية والمجلدات]
     if path_str and path_str not in ["SUPER_ADMIN_PANEL", "GLOBAL_ADMIN_PANEL", "STUDENT_FEATURES", "FAVORITES", "MANAGE_ADMINS", "ADMIN_PERMISSIONS"]:
-        
-        if text == "📤 مساهمة بملف":
-            reset_modes(chat_id); upload_mode[chat_id] = True
-            bot.send_message(chat_id, "📥 أهلاً بك، يرجى إرسال الملفات (بصيغة PDF, DOCX, PPTX فقط).\n(يُمكنك إرسال أكثر من ملف دفعة واحدة):", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 إلغاء الأمر")); return
-
         if is_mod:
             if text == "➕ إضافة ملف/نص":
                 reset_modes(chat_id); upload_mode[chat_id] = True
@@ -974,15 +976,12 @@ def universal_handler(message):
         parent_p = path_str.rsplit(' > ', 1)[0] if ' > ' in path_str else ""
         new_name = text.strip()
         
-        # 1. تحديث الاسم في الهيكل الديناميكي إن وجد
         renamed_in_struct = rename_in_structure(global_academic_structure, old_name, new_name)
         if renamed_in_struct:
             settings_col.update_one({"_id": "academic_structure"}, {"$set": {"data": global_academic_structure}})
             
-        # 2. تحديثه في المجلدات الديناميكية الإضافية
         folders_col.update_one({"parent_path": parent_p, "folder_name": old_name}, {"$set": {"folder_name": new_name}})
         
-        # 3. تحديث مسار الملفات التابعة (Recursive Update)
         old_f = f"{parent_p} > {old_name}" if parent_p else old_name
         new_f = f"{parent_p} > {new_name}" if parent_p else new_name
         
@@ -1016,7 +1015,6 @@ def universal_handler(message):
         files_col.insert_one({"menu_path": path_str, "name": text[:60].strip(), "type": "text", "content": text, "downloads": 0, "upload_date": datetime.utcnow(), "sort_order": 0})
         bot.send_message(chat_id, "✅ تم حفظ التلخيص النصي بنجاح."); return
 
-    # [الاستماع للمجلدات المضافة يدوياً - لمعالجة المجلدات الديناميكية]
     if text.startswith("📁 ") and " > " in text:
         user_path[chat_id] = text.replace("📁 ", "").strip().split(" > ")
         show_menu(chat_id); return
@@ -1024,7 +1022,6 @@ def universal_handler(message):
         user_path[chat_id].append(text.replace("📁 ", "").strip())
         show_menu(chat_id); return
         
-    # [فتح الملفات]
     if text and (text.startswith("📄 ") or text.startswith("📌 ") or text.startswith("🖼️ ")):
         ex_name = text.replace("📄 ", "").replace("📌 ", "").replace("🖼️ ", "").strip()
         f_doc = files_col.find_one({"menu_path": path_str, "name": {"$regex": f"^{re.escape(ex_name)}$", "$options": "i"}})
@@ -1036,63 +1033,131 @@ def universal_handler(message):
 # ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
 # ==========================================
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'dl_', 'rl_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
-    try: action, obj_id = call.data.split('_', 1)
-    except: return
+    try:
+        action, obj_id = call.data.split('_', 1)
+    except Exception:
+        return
 
-    if action == 'fv':
-        users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
-        bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True); return
-        
-    if action == 'rt':
-        m = InlineKeyboardMarkup(row_width=5)
-        m.add(*[InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)])
-        try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
-        except: pass
-        return
-        
-    if action == 'str':
-        score, f_id = obj_id.split('_')
-        ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
-        bot.answer_callback_query(call.id, f"⭐️ تم حفظ تقييمك: {score}/10", show_alert=True)
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
-        return
+    try:
+        f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
+    except Exception:
+        f_doc = None
 
     if action == 'rl':
-        f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
         if f_doc:
-            bot.answer_callback_query(call.id, f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}", show_alert=True)
+            bot.answer_callback_query(
+                call.id,
+                f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}",
+                show_alert=True
+            )
         return
 
-    f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
-    if not f_doc or not is_moderator(chat_id, f_doc['menu_path']): bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True); return
+    if not f_doc:
+        bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
+        return
+
+    if not is_moderator(chat_id, f_doc.get('menu_path')):
+        bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+        return
 
     if action == 'dl':
-        files_col.delete_one({"_id": ObjectId(obj_id)})
-        log_action(chat_id, "DELETE_FILE", f_doc['name'])
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
+        files_col.delete_one({"_id": f_doc["_id"]})
+        log_action(chat_id, "DELETE_FILE", f_doc.get('name', 'file'))
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+        bot.answer_callback_query(call.id, "✅ تم حذف الملف.")
         show_menu(chat_id)
+
     elif action == 'rn':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "rename_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "✏️ الرجاء إرسال الاسم الجديد للملف الآن:")
-    elif action == 'rp':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "🔄 الرجاء إرسال الملف البديل الآن:")
-    elif action == 'mv':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل واضغط زر التأكيد.")
-        user_path[chat_id] = []; show_menu(chat_id)
-    elif action in ['up', 'dn', 'pn']:
-        if action == 'pn': files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
-        else: files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
-        bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False); show_menu(chat_id)
+
+# =========================================================
+# 12. محرك النشر الفوري داخل الجروبات (Inline Handler)
+# =========================================================
+
+@bot.inline_handler(func=lambda query: query.query.startswith('file_'))
+def handle_admin_inline_share(query):
+    try:
+        if not is_moderator(query.from_user.id):
+            return
+
+        obj_id = query.query.split('_', 1)[1]
+        res = files_col.find_one({"_id": ObjectId(obj_id)})
+        if not res:
+            return
+
+        file_id_str = str(res['_id'])
+        share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start={file_id_str}"
+        deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
+
+        path_str = res.get('menu_path', '')
+        btn_name = "📁 المجلد الرئيسي"
+        if path_str:
+            parts = path_str.split(' > ')
+            clean_parts = [p.replace("🕋", "").replace("🇺🇸", "").replace("🇾🇪", "").replace("📊", "").replace("🖥️", "").replace("📐", "").replace("📃", "").replace("📝", "").replace("📚", "").strip() for p in parts]
+            if len(clean_parts) >= 2:
+                section = clean_parts[-1]
+                course = clean_parts[-2]
+                if "نماذج" in section:
+                    section = "نماذج"
+                if "محاضرات" in section:
+                    section = "محاضرات"
+                if "ملخصات" in section:
+                    section = "ملخصات"
+                btn_name = f"📁 {section} - {course}"
+
+        group_markup = InlineKeyboardMarkup(row_width=2)
+        group_markup.add(InlineKeyboardButton(btn_name, url=deep_folder_url))
+        group_markup.add(InlineKeyboardButton("🔗 مشاركة الملف", url=share_url))
+
+        file_type = res.get('type', 'document')
+        file_id = res.get('file_id')
+        base_name = res.get('name', 'وثيقة أكاديمية')
+        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
+        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)}"
+        caption += f"\n\n📥 لفتح المجلد الأكاديمي مباشرة بلمحة عين:\n/start folder_{file_id_str}"
+
+        results = []
+        if file_type == 'photo' and file_id:
+            results.append(telebot.types.InlineQueryResultCachedPhoto(
+                id=file_id_str,
+                photo_file_id=file_id,
+                caption=caption,
+                reply_markup=group_markup
+            ))
+        elif file_type == 'text':
+            results.append(telebot.types.InlineQueryResultArticle(
+                id=file_id_str,
+                title=base_name,
+                description="اضغط هنا لنشر هذا الملخص النصي فوراً داخل المحادثة",
+                input_message_content=telebot.types.InputTextMessageContent(res.get('content', base_name)),
+                reply_markup=group_markup
+            ))
+        elif file_id:
+            results.append(telebot.types.InlineQueryResultCachedDocument(
+                id=file_id_str,
+                document_file_id=file_id,
+                title=base_name,
+                description="اضغط هنا لنشر هذا المستند والمجلد الشفاف الخاص به فوراً",
+                caption=caption,
+                reply_markup=group_markup
+            ))
+
+        bot.answer_inline_query(query.id, results, cache_time=1)
+    except Exception as e:
+        logging.error(f"Inline Share Error: {e}")
 
 # ==========================================
-# 12. تشغيل السيرفر (Webhook Setup)
+# 13. تشغيل السيرفر (Webhook Setup)
 # ==========================================
 
 @app.route('/webhook', methods=['POST'])
@@ -1104,6 +1169,12 @@ def webhook_listen_route():
 
 @app.route("/")
 def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
+
+from flask import redirect
+
+@app.route('/f/<folder_id>')
+def redirect_to_folder(folder_id):
+    return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
