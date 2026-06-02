@@ -282,12 +282,25 @@ def set_file_context(chat_id, file_doc, has_perm):
     action_payload[chat_id] = str(file_doc["_id"])
     admin_action_mode[chat_id] = "file_actions" if has_perm and not testing_mode.get(chat_id) else "file_user_actions"
 
+def get_context_file(chat_id):
+    ctx = file_context_state.get(chat_id) or {}
+    f_id = ctx.get("file_id")
+    if not f_id:
+        return None
+    oid = safe_object_id(f_id)
+    if not oid:
+        return None
+    return files_col.find_one({"_id": oid})
+
 def clear_file_context(chat_id):
     file_context_state.pop(chat_id, None)
     action_payload.pop(chat_id, None)
-    if admin_action_mode.get(chat_id) in ("file_actions", "file_user_actions", "rename_file", "replace_file", "confirm_delete_file", "rate_file"):
+    if admin_action_mode.get(chat_id) in (
+        "file_actions", "file_user_actions", "rename_file",
+        "replace_file", "confirm_delete_file", "rate_file",
+        "move_file_dest"
+    ):
         admin_action_mode[chat_id] = None
-
 
 def show_file_keyboard(chat_id, has_perm):
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -339,11 +352,31 @@ def send_file_actions_prompt(chat_id, has_perm):
     try:
         bot.send_message(
             chat_id,
-            "⚙️ اختر الإجراء المطلوب من لوحة الأوامر:",
+            "\u200b",
             reply_markup=show_file_keyboard(chat_id, has_perm),
         )
     except Exception as exc:
         logging.error(f"File actions prompt error: {exc}")
+
+
+def build_file_details_text(f_doc):
+    upload_date = f_doc.get("upload_date", datetime.utcnow())
+    if isinstance(upload_date, datetime):
+        upload_date = upload_date.strftime("%Y-%m-%d %H:%M")
+    else:
+        upload_date = str(upload_date)
+
+    file_id = str(f_doc.get("_id"))
+    avg_rating = get_average_rating(file_id)
+    return (
+        "📝 تفاصيل الملف\n\n"
+        f"• الاسم: {f_doc.get('name', 'غير معروف')}\n"
+        f"• القسم: {f_doc.get('menu_path', 'غير محدد')}\n"
+        f"• النوع: {f_doc.get('type', 'document')}\n"
+        f"• التحميلات: {f_doc.get('downloads', 0)}\n"
+        f"• متوسط التقييم: {avg_rating:.1f}/10\n"
+        f"• تاريخ الرفع: {upload_date}\n"
+    )
 
 
 def check_rate_limit(chat_id):
@@ -702,10 +735,10 @@ def _build_admin_actions_markup(file_id_str):
 
 def send_file_to_user(chat_id, res, has_perm):
     """
-    إرسال الملف بشكل نظيف:
-    - بطاقة الملف نفسها لا تحمل سوى زر المجلد فقط.
-    - أوامر الطالب/المشرف تظهر في كيبورد Reply مستقل.
-    - يتم تخزين سياق الملف حتى تعمل الأزرار اللاحقة بشكل صحيح.
+    إرسال الملف بشكل عملي:
+    - بطاقة الملف تحتوي على زر المجلد فقط.
+    - لوحة الأوامر الحقيقية تظهر ككيبورد Reply مستقل.
+    - يتم حفظ سياق الملف حتى تعمل الأزرار بشكل حرفي على الملف الحالي.
     """
     try:
         if not res:
@@ -723,7 +756,6 @@ def send_file_to_user(chat_id, res, has_perm):
         caption = f"{caption_text}\n\n📅 {up_date} | 🔻 {downloads}"
         if has_perm and not testing_mode.get(chat_id):
             caption += f"\n⭐️ متوسط تقييم الطلاب: {avg_rt:.1f}/10"
-
 
         folder_label = build_folder_button_label(res.get("menu_path", ""))
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
@@ -746,6 +778,10 @@ def send_file_to_user(chat_id, res, has_perm):
     except Exception as e:
         logging.error(f"Send Error: {e}")
 
+
+# ==========================================
+# 10. المعالج المركزي (Router)
+# ==========================================
 
 
 # ==========================================
@@ -788,49 +824,130 @@ def universal_handler(message):
         bot.send_message(chat_id, "💼 تم إنهاء وضع الطالب، عدت الآن للإدارة.")
         show_menu(chat_id); return
 
+    ctx_file = get_context_file(chat_id)
+
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
-        bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
+        clear_file_context(chat_id)
+        bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT))
+        return
 
-        if text == "🔙 الرجوع للقائمة السابقة":
+    if text == "🛑 إلغاء الأمر":
+        reset_modes(chat_id)
+        clear_file_context(chat_id)
+        bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية.")
+        show_menu(chat_id)
+        return
+
+    if text == "🔙 الرجوع للقائمة السابقة":
+        if ctx_file or admin_action_mode.get(chat_id):
             clear_file_context(chat_id)
-            if user_path.get(chat_id):
-                if user_path[chat_id]:
-                    user_path[chat_id].pop()
-            show_menu(chat_id)
-            return
+        if user_path.get(chat_id):
+            if user_path[chat_id]:
+                user_path[chat_id].pop()
+        show_menu(chat_id)
+        return
 
-        if text == "🔝 القائمة الرئيسية":
-            clear_file_context(chat_id)
-            user_path[chat_id] = []
-            show_menu(chat_id)
-            return
+    if text == "🔝 القائمة الرئيسية":
+        clear_file_context(chat_id)
+        user_path[chat_id] = []
+        show_menu(chat_id)
+        return
 
-        if text == "⭐ إضافة للمفضلة" and ctx_file:
-            users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": ctx["file_id"]}})
+    # ---- ملف فعلي تحت السياق الحالي ----
+    if ctx_file:
+        has_file_admin = is_moderator(chat_id, ctx_file.get("menu_path")) or is_owner(chat_id) or is_admin(chat_id)
+
+        if text == "⭐ إضافة للمفضلة":
+            users_col.update_one(
+                {"chat_id": chat_id},
+                {"$addToSet": {"favorites": ctx_file["file_id"]}},
+                upsert=True
+            )
             bot.send_message(chat_id, "✅ تمت إضافة الملف للمفضلة.")
             return
 
-        if text == "⭐ تقييم الملف" and ctx_file:
+        if text == "📝 تفاصيل":
+            bot.send_message(chat_id, build_file_details_text(ctx_file))
+            return
+
+        if text == "⭐ تقييم الملف":
             admin_action_mode[chat_id] = "rate_file"
-            action_payload[chat_id] = ctx["file_id"]
+            action_payload[chat_id] = ctx_file["file_id"]
             kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=5)
             kb.add(*[KeyboardButton(str(i)) for i in range(1, 11)])
             kb.add(KeyboardButton("❌ إلغاء"))
             bot.send_message(chat_id, "⭐ أرسل تقييمك من 1 إلى 10:", reply_markup=kb)
             return
 
-        if text == "✏️ إعادة تسمية" and ctx_file and (is_moderator(chat_id, ctx_file["menu_path"]) or is_owner(chat_id) or is_admin(chat_id)):
+        if text == "✏️ إعادة تسمية" and has_file_admin:
             admin_action_mode[chat_id] = "rename_file"
-            action_payload[chat_id] = ctx["file_id"]
-            bot.send_message(chat_id, "✏️ أرسل الاسم الجديد للملف الآن:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("❌ إلغاء"))
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True)
+            kb.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "✏️ أرسل الاسم الجديد للملف الآن:", reply_markup=kb)
             return
 
-        if text == "🗑️ حذف" and ctx_file and (is_moderator(chat_id, ctx_file["menu_path"]) or is_owner(chat_id) or is_admin(chat_id)):
+        if text == "🗑️ حذف" and has_file_admin:
             admin_action_mode[chat_id] = "confirm_delete_file"
-            action_payload[chat_id] = ctx["file_id"]
+            action_payload[chat_id] = ctx_file["file_id"]
             kb = ReplyKeyboardMarkup(resize_keyboard=True)
             kb.add(KeyboardButton("✅ نعم احذف"), KeyboardButton("❌ إلغاء"))
             bot.send_message(chat_id, "⚠️ هل أنت متأكد من حذف هذا الملف نهائياً؟", reply_markup=kb)
+            return
+
+        if text == "🔄 استبدال الملف" and has_file_admin:
+            admin_action_mode[chat_id] = "replace_file"
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True)
+            kb.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "🔄 أرسل الملف البديل الآن:", reply_markup=kb)
+            return
+
+        if text == "📦 نقل" and has_file_admin:
+            admin_action_mode[chat_id] = "move_file_dest"
+            action_payload[chat_id] = ctx_file["file_id"]
+            user_path[chat_id] = []
+            bot.send_message(chat_id, "📦 تصفح للوصول للمسار الجديد ثم اضغط زر التأكيد.")
+            show_menu(chat_id)
+            return
+
+        if text == "🔼 للأعلى" and has_file_admin:
+            try:
+                files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$inc": {"sort_order": -1}})
+                bot.send_message(chat_id, "✅ تم نقل الملف للأعلى.")
+            except Exception as e:
+                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية: {e}")
+            return
+
+        if text == "🔽 للأسفل" and has_file_admin:
+            try:
+                files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$inc": {"sort_order": 1}})
+                bot.send_message(chat_id, "✅ تم نقل الملف للأسفل.")
+            except Exception as e:
+                bot.send_message(chat_id, f"❌ تعذر تنفيذ العملية: {e}")
+            return
+
+        if text == "📌 تثبيت" and has_file_admin:
+            try:
+                files_col.update_one({"_id": ObjectId(ctx_file["_id"])}, {"$set": {"sort_order": -999999}})
+                bot.send_message(chat_id, "✅ تم تثبيت الملف في الأعلى.")
+            except Exception as e:
+                bot.send_message(chat_id, f"❌ تعذر تثبيت الملف: {e}")
+            return
+
+        if admin_action_mode.get(chat_id) == "rate_file" and text and text.isdigit():
+            score = int(text)
+            if 1 <= score <= 10 and action_payload.get(chat_id):
+                ratings_col.update_one(
+                    {"file_id": action_payload[chat_id], "user_id": chat_id},
+                    {"$set": {"score": score}},
+                    upsert=True
+                )
+                bot.send_message(chat_id, f"⭐️ تم حفظ تقييمك: {score}/10")
+                clear_file_context(chat_id)
+                show_menu(chat_id)
+                return
+            bot.send_message(chat_id, "❌ التقييم يجب أن يكون من 1 إلى 10.")
             return
 
         if text == "✅ نعم احذف" and admin_action_mode.get(chat_id) == "confirm_delete_file":
@@ -848,21 +965,27 @@ def universal_handler(message):
             show_menu(chat_id)
             return
 
-        # rating input can happen in file context
-        if admin_action_mode.get(chat_id) == "rate_file" and text and text.isdigit():
-            score = int(text)
-            if 1 <= score <= 10 and action_payload.get(chat_id):
-                ratings_col.update_one({"file_id": action_payload[chat_id], "user_id": chat_id}, {"$set": {"score": score}}, upsert=True)
-                bot.send_message(chat_id, f"⭐️ تم حفظ تقييمك: {score}/10")
-                clear_file_context(chat_id)
-                show_menu(chat_id)
-                return
-            else:
-                bot.send_message(chat_id, "❌ التقييم يجب أن يكون من 1 إلى 10.")
-                return
+        if text == "❌ إلغاء":
+            clear_file_context(chat_id)
+            show_menu(chat_id)
+            return
 
-        # if user typed something else while in file context, ignore and wait
+        # داخل السياق لا نمرر الرسالة لعمليات أخرى
         return
+
+    if text == "🔙 الرجوع للقائمة السابقة":
+        if user_path.get(chat_id):
+            if user_path[chat_id]:
+                user_path[chat_id].pop()
+        show_menu(chat_id)
+        return
+
+    if text == "🔝 القائمة الرئيسية":
+        user_path[chat_id] = []
+        show_menu(chat_id)
+        return
+
+    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
 
     main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
     
@@ -1325,124 +1448,182 @@ def universal_handler(message):
             send_file_to_user(chat_id, f_doc, is_moderator(chat_id, path_str))
         return
 
-# ==============================================================================
+# ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
-# ==============================================================================
+# ==========================================
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
-    try: 
-        action, obj_id = call.data.split('_', 1)
-    except Exception: 
-        return
 
-    # --- 1. زر المفضلة ---
-    if action == 'fv':
-        users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
-        bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True)
-        return
-        
-    # --- 2. زر التقييم (توليد الأرقام من 1 إلى 10) ---
-    if action == 'rt':
-        m = InlineKeyboardMarkup(row_width=5)
-        # توليد 10 أزرار للتقييم
-        buttons = [InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)]
-        m.add(*buttons)
-        try: 
-            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
-        except Exception: 
+    try:
+        action, obj_id = call.data.split('_', 1)
+    except Exception:
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
             pass
         return
-        
-    # --- 3. استلام رقم التقييم وإرساله للإدارة ---
-    if action == 'str':
+
+    if action == 'fv':
         try:
-            score, f_id = obj_id.split('_')
-            score = int(score)
-            
-            # حفظ التقييم في قاعدة البيانات
-            ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": score}}, upsert=True)
-            
-            # الرد على الطالب ليطمئن
-            bot.answer_callback_query(call.id, f"⭐️ شكراً لك! تم حفظ تقييمك: {score}/10", show_alert=True)
-            
-            # جلب اسم الملف لإرسال الإشعار للإدارة (لك)
-            f_doc = files_col.find_one({"_id": ObjectId(f_id)})
-            file_name = f_doc.get('name', 'ملف غير معروف') if f_doc else 'ملف غير معروف'
-            user_name = call.from_user.first_name or "طالب"
-            
-            # تحويل التقييم فوراً للمشرف الرئيسي (أنت)
-            bot.send_message(SUPER_ADMIN_ID, f"⭐️ *تقييم جديد من طالب!*\n\n👤 الطالب: {user_name}\n📄 الملف: `{file_name}`\n📈 التقييم: {score}/10", parse_mode="Markdown")
-            
-            # مسح رسالة التقييم لترتيب المحادثة للطالب
-            bot.delete_message(chat_id, call.message.message_id)
-        except Exception as e:
-            logging.error(f"Rating Error: {e}")
+            users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}}, upsert=True)
+            bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True)
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id, "❌ تعذر إضافة الملف للمفضلة.", show_alert=True)
+            except Exception:
+                pass
         return
 
-    # --- 4. زر تفاصيل الملف ---
+    if action == 'rt':
+        try:
+            m = ReplyKeyboardMarkup(resize_keyboard=True, row_width=5)
+            m.add(*[KeyboardButton(str(i)) for i in range(1, 11)])
+            m.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "⭐ أرسل تقييمك من 1 إلى 10:", reply_markup=m)
+            bot.answer_callback_query(call.id)
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id)
+            except Exception:
+                pass
+        return
+
+    if action == 'str':
+        try:
+            score, f_id = obj_id.split('_', 1)
+            ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
+            bot.answer_callback_query(call.id, f"⭐️ تم حفظ تقييمك: {score}/10", show_alert=True)
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id, "❌ حدث خطأ أثناء حفظ التقييم.", show_alert=True)
+            except Exception:
+                pass
+        return
+
     if action == 'rl':
         try:
             f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
             if f_doc:
-                d_str = f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
-                d_cnt = f_doc.get('downloads', 0)
-                n_str = f_doc.get('name', 'بدون اسم')
-                
-                # حساب متوسط التقييم للملف
-                all_r = list(ratings_col.find({"file_id": obj_id}))
-                avg = sum(r['score'] for r in all_r) / len(all_r) if all_r else 0.0
-                
-                msg_details = f"📝 الملف: {n_str}\n📥 التحميلات: {d_cnt}\n📅 الرفع: {d_str}\n⭐️ متوسط التقييم: {avg:.1f}/10"
-                # ظهور نافذة منبثقة للطالب بالتفاصيل
-                bot.answer_callback_query(call.id, msg_details, show_alert=True)
+                bot.send_message(chat_id, build_file_details_text(f_doc))
+                bot.answer_callback_query(call.id)
             else:
                 bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
-        except Exception as e:
-            logging.error(f"Details error: {e}")
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
+            except Exception:
+                pass
         return
 
-    # ==========================================
-    # --- خيارات الإدارة (تحتاج صلاحيات المشرف) ---
-    # ==========================================
     try:
         f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
     except Exception:
-        return
-        
-    # التحقق من صلاحيات المشرف قبل تنفيذ الحذف، التسمية، النقل
-    if not f_doc or not is_moderator(chat_id, f_doc.get('menu_path', '')): 
-        bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية لإدارة هذا الملف.", show_alert=True)
+        f_doc = None
+
+    if not f_doc:
+        try:
+            bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
+        except Exception:
+            pass
         return
 
+    has_file_admin = is_moderator(chat_id, f_doc.get('menu_path')) or is_owner(chat_id) or is_admin(chat_id)
+
     if action == 'dl':
-        files_col.delete_one({"_id": ObjectId(obj_id)})
-        log_action(chat_id, "DELETE_FILE", f_doc.get('name', ''))
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except Exception: pass
-        show_menu(chat_id)
-        
-    elif action == 'rn':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
+        if not has_file_admin:
+            try:
+                bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+            except Exception:
+                pass
+            return
+        try:
+            files_col.delete_one({"_id": ObjectId(obj_id)})
+            log_action(chat_id, "DELETE_FILE", f_doc.get('name', 'file'))
+            bot.answer_callback_query(call.id, "✅ تم حذف الملف نهائياً.", show_alert=True)
+            try:
+                bot.delete_message(chat_id, call.message.message_id)
+            except Exception:
+                pass
+            show_menu(chat_id)
+        except Exception as e:
+            logging.error(f"Delete file error: {e}")
+            try:
+                bot.answer_callback_query(call.id, "❌ تعذر حذف الملف.", show_alert=True)
+            except Exception:
+                pass
+        return
+
+    if action == 'rn':
+        if not has_file_admin:
+            try:
+                bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+            except Exception:
+                pass
+            return
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "rename_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "✏️ الرجاء إرسال الاسم الجديد للملف الآن:")
-        
-    elif action == 'rp':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
+        return
+
+    if action == 'rp':
+        if not has_file_admin:
+            try:
+                bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+            except Exception:
+                pass
+            return
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "replace_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "🔄 الرجاء إرسال الملف البديل الآن:")
-        
-    elif action == 'mv':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
-        bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل الجديد، ثم اضغط زر (أنقل إلى هذا القسم).")
-        user_path[chat_id] = []; show_menu(chat_id)
-        
-    elif action in ['up', 'dn', 'pn']:
-        if action == 'pn': 
-            files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
-        else: 
-            files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
-        bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False)
+        return
+
+    if action == 'mv':
+        if not has_file_admin:
+            try:
+                bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+            except Exception:
+                pass
+            return
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "move_file_dest"
+        action_payload[chat_id] = obj_id
+        bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل واضغط زر التأكيد.")
+        user_path[chat_id] = []
         show_menu(chat_id)
-        
+        return
+
+    if action in ['up', 'dn', 'pn']:
+        if not has_file_admin:
+            try:
+                bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+            except Exception:
+                pass
+            return
+        try:
+            if action == 'pn':
+                files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
+            else:
+                files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
+            bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False)
+            show_menu(chat_id)
+        except Exception as e:
+            logging.error(f"Sort update error: {e}")
+            try:
+                bot.answer_callback_query(call.id, "❌ تعذر تحديث الترتيب.", show_alert=True)
+            except Exception:
+                pass
+        return
+
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
+# ==========================================
 
 # ==========================================
 # 12. تشغيل السيرفر (Webhook Setup)
