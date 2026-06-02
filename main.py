@@ -25,9 +25,14 @@ if sys.version_info >= (3, 0):
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_TOKEN = os.environ.get("API_TOKEN", "")
-MONGO_URI = os.environ.get("MONGO_URI", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+MONGO_URI = os.environ.get("MONGO_URI", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
+if not API_TOKEN:
+    raise RuntimeError("API_TOKEN is required in environment variables.")
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI is required in environment variables.")
 SUPER_ADMIN_ID = 6842543527
 
 START_TIME = datetime.utcnow()
@@ -302,6 +307,59 @@ def clear_file_context(chat_id):
     ):
         admin_action_mode[chat_id] = None
 
+
+def strip_file_button_prefix(text: str) -> str:
+    """إزالة رمز الملف/المجلد من زر القائمة حتى نصل للاسم الحقيقي."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"^[📌🖼️📄📁]\s*", "", text).strip()
+    return cleaned
+
+def resolve_selected_folder(chat_id, text):
+    """إيجاد مجلد ديناميكي من الزر النصي الحالي."""
+    if not text or not text.startswith("📁 "):
+        return None
+    folder_name = text.replace("📁 ", "", 1).strip()
+    path_str = get_path_string(chat_id)
+    return folders_col.find_one({"parent_path": path_str, "folder_name": folder_name})
+
+def resolve_selected_file(chat_id, text):
+    """إيجاد ملف من الزر النصي الحالي داخل المسار الحالي."""
+    if not text:
+        return None
+
+    path_str = get_path_string(chat_id)
+    raw_name = strip_file_button_prefix(text)
+
+    candidates = []
+
+    # مطابقة مباشرة بالاسم المحفوظ
+    candidates.extend(list(files_col.find({"menu_path": path_str, "name": raw_name}).limit(5)))
+
+    # مطابقة بالـ caption عند الحاجة
+    if not candidates:
+        candidates.extend(list(files_col.find({
+            "menu_path": path_str,
+            "$or": [
+                {"caption": raw_name},
+                {"caption": {"$regex": f"^{re.escape(raw_name)}$", "$options": "i"}},
+                {"name": {"$regex": f"^{re.escape(raw_name)}$", "$options": "i"}},
+            ]
+        }).limit(5)))
+
+    # مطابقة تقريبية لو كانت هناك رموز/مسافات مختلفة
+    if not candidates:
+        for doc in files_col.find({"menu_path": path_str}).limit(100):
+            doc_name = (doc.get("name") or "").strip()
+            if doc_name == raw_name:
+                candidates.append(doc)
+                break
+            if doc_name and strip_file_button_prefix(doc_name) == raw_name:
+                candidates.append(doc)
+                break
+
+    return candidates[0] if candidates else None
+
 def show_file_keyboard(chat_id, has_perm):
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 
@@ -398,6 +456,7 @@ def cleanup_deleted_file(file_id_str):
         )
     except Exception as exc:
         logging.error(f"Cleanup favorites error: {exc}")
+
 def check_rate_limit(chat_id):
 
     now = time.time()
@@ -862,6 +921,13 @@ def universal_handler(message):
         show_menu(chat_id)
         return
 
+    # ---- استجابة لزر مجلد ديناميكي ----
+    folder_doc = resolve_selected_folder(chat_id, text)
+    if folder_doc and not ctx_file and not admin_action_mode.get(chat_id):
+        user_path[chat_id].append(folder_doc["folder_name"])
+        show_menu(chat_id)
+        return
+
     if text == "🔙 الرجوع للقائمة السابقة":
         if ctx_file or admin_action_mode.get(chat_id):
             clear_file_context(chat_id)
@@ -875,6 +941,17 @@ def universal_handler(message):
         clear_file_context(chat_id)
         user_path[chat_id] = []
         show_menu(chat_id)
+        return
+
+    # ---- استجابة لزر ملف من القائمة ----
+    selected_file = resolve_selected_file(chat_id, text)
+    if selected_file and not admin_action_mode.get(chat_id):
+        try:
+            files_col.update_one({"_id": selected_file["_id"]}, {"$inc": {"downloads": 1}})
+            selected_file["downloads"] = int(selected_file.get("downloads", 0)) + 1
+        except Exception as exc:
+            logging.error(f"Download increment error: {exc}")
+        send_file_to_user(chat_id, selected_file, is_moderator(chat_id, selected_file.get("menu_path")))
         return
 
     # ---- ملف فعلي تحت السياق الحالي ----
