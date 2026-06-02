@@ -1016,7 +1016,66 @@ def universal_handler(message):
         return
 
     # ---- ملف فعلي تحت السياق الحالي ----
-        if ctx_file:
+    if ctx_file:
+        has_file_admin = is_moderator(chat_id, ctx_file.get("menu_path")) or is_owner(chat_id) or is_admin(chat_id)
+
+        if text == "⭐ إضافة للمفضلة":
+            users_col.update_one(
+                {"chat_id": chat_id},
+                {"$addToSet": {"favorites": ctx_file["file_id"]}},
+                upsert=True
+            )
+            bot.send_message(chat_id, "✅ تمت إضافة الملف للمفضلة.")
+            return
+
+        if text == "📝 تفاصيل":
+            bot.send_message(chat_id, build_file_details_text(ctx_file))
+            return
+
+        if text == "⭐ تقييم الملف":
+            admin_action_mode[chat_id] = "rate_file"
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=5)
+            kb.add(*[KeyboardButton(str(i)) for i in range(1, 11)])
+            kb.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "⭐ أرسل تقييمك من 1 إلى 10:", reply_markup=kb)
+            return
+
+        if text == "✏️ إعادة تسمية" and has_file_admin:
+            admin_action_mode[chat_id] = "rename_file"
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True)
+            kb.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "✏️ أرسل الاسم الجديد للملف الآن:", reply_markup=kb)
+            return
+
+        if text == "🗑️ حذف" and has_file_admin:
+            admin_action_mode[chat_id] = "confirm_delete_file"
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True)
+            kb.add(KeyboardButton("✅ نعم احذف"), KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "⚠️ هل أنت متأكد من حذف هذا الملف نهائياً؟", reply_markup=kb)
+            return
+
+        if text == "🔄 استبدال الملف" and has_file_admin:
+            admin_action_mode[chat_id] = "replace_file"
+            action_payload[chat_id] = ctx_file["file_id"]
+            kb = ReplyKeyboardMarkup(resize_keyboard=True)
+            kb.add(KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "🔄 أرسل الملف البديل الآن:", reply_markup=kb)
+            return
+
+        if text == "📦 نقل" and has_file_admin:
+            admin_action_mode[chat_id] = "move_file_dest"
+            action_payload[chat_id] = ctx_file["file_id"]
+            user_path[chat_id] = []
+            bot.send_message(chat_id, "📦 تصفح للوصول للمسار الجديد ثم اضغط زر التأكيد.")
+            show_menu(chat_id)
+            return
+
+        if text == "🔼 للأعلى" and has_file_admin:
+            try:
+    if ctx_file:
         has_file_admin = is_moderator(chat_id, ctx_file.get("menu_path")) or is_owner(chat_id) or is_admin(chat_id)
 
         if text == "⭐ إضافة للمفضلة":
@@ -1151,9 +1210,9 @@ def universal_handler(message):
             show_menu(chat_id)
             return
 
-
         # داخل السياق لا نمرر الرسالة لعمليات أخرى
         return
+
 
     if text == "🔙 الرجوع للقائمة السابقة":
         if user_path.get(chat_id):
