@@ -25,9 +25,9 @@ if sys.version_info >= (3, 0):
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_TOKEN = os.environ.get("API_TOKEN", "7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A")
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSy")
+API_TOKEN = os.environ.get("API_TOKEN", "")
+MONGO_URI = os.environ.get("MONGO_URI", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 SUPER_ADMIN_ID = 6842543527
 
 START_TIME = datetime.utcnow()
@@ -288,18 +288,66 @@ def clear_file_context(chat_id):
     if admin_action_mode.get(chat_id) in ("file_actions", "file_user_actions", "rename_file", "replace_file", "confirm_delete_file", "rate_file"):
         admin_action_mode[chat_id] = None
 
+
 def show_file_keyboard(chat_id, has_perm):
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+
     if has_perm and not testing_mode.get(chat_id):
-        kb.add(KeyboardButton("✏️ إعادة تسمية"), KeyboardButton("🗑️ حذف"))
-        kb.add(KeyboardButton("⭐ إضافة للمفضلة"), KeyboardButton("⭐ تقييم الملف"))
-        kb.add(KeyboardButton("❌ إلغاء"))
+        kb.add(
+            KeyboardButton("✏️ إعادة تسمية"),
+            KeyboardButton("🗑️ حذف"),
+        )
+        kb.add(
+            KeyboardButton("🔄 استبدال الملف"),
+            KeyboardButton("📦 نقل"),
+        )
+        kb.add(
+            KeyboardButton("🔼 للأعلى"),
+            KeyboardButton("🔽 للأسفل"),
+        )
+        kb.add(
+            KeyboardButton("📌 تثبيت"),
+            KeyboardButton("⭐ إضافة للمفضلة"),
+        )
+        kb.add(
+            KeyboardButton("⭐ تقييم الملف"),
+            KeyboardButton("📝 تفاصيل"),
+        )
+        kb.add(
+            KeyboardButton("🔙 الرجوع للقائمة السابقة"),
+            KeyboardButton("🔝 القائمة الرئيسية"),
+        )
+        kb.add(KeyboardButton("🛑 إلغاء الأمر"))
     else:
-        kb.add(KeyboardButton("⭐ إضافة للمفضلة"), KeyboardButton("⭐ تقييم الملف"))
-        kb.add(KeyboardButton("🔙 الرجوع للقائمة السابقة"), KeyboardButton("🔝 القائمة الرئيسية"))
+        kb.add(
+            KeyboardButton("⭐ إضافة للمفضلة"),
+            KeyboardButton("⭐ تقييم الملف"),
+        )
+        kb.add(
+            KeyboardButton("📝 تفاصيل"),
+            KeyboardButton("🔙 الرجوع للقائمة السابقة"),
+        )
+        kb.add(
+            KeyboardButton("🔝 القائمة الرئيسية"),
+            KeyboardButton("🛑 إلغاء الأمر"),
+        )
+
     return kb
 
+
+def send_file_actions_prompt(chat_id, has_perm):
+    try:
+        bot.send_message(
+            chat_id,
+            "⚙️ اختر الإجراء المطلوب من لوحة الأوامر:",
+            reply_markup=show_file_keyboard(chat_id, has_perm),
+        )
+    except Exception as exc:
+        logging.error(f"File actions prompt error: {exc}")
+
+
 def check_rate_limit(chat_id):
+
     now = time.time()
     if chat_id in RATE_LIMIT_DICT and now - RATE_LIMIT_DICT[chat_id] < 0.7:
         return False
@@ -651,12 +699,13 @@ def _build_admin_actions_markup(file_id_str):
     return markup
 
 
+
 def send_file_to_user(chat_id, res, has_perm):
     """
-    إرسال الملف بصورة مستقرة:
-    - بطاقة الملف نفسها تحتوي فقط على زر فتح المجلد.
-    - الأوامر الإضافية تظهر في رسالة منفصلة وتكون Inline فقط.
-    - لا يوجد file_context_state للمستخدم العادي، وبالتالي لن يعلق بعد فتح الملف.
+    إرسال الملف بشكل نظيف:
+    - بطاقة الملف نفسها لا تحمل سوى زر المجلد فقط.
+    - أوامر الطالب/المشرف تظهر في كيبورد Reply مستقل.
+    - يتم تخزين سياق الملف حتى تعمل الأزرار اللاحقة بشكل صحيح.
     """
     try:
         if not res:
@@ -671,18 +720,18 @@ def send_file_to_user(chat_id, res, has_perm):
         downloads = res.get("downloads", 0)
         avg_rt = get_average_rating(file_id_str)
 
-        # الوصف الظاهر للملف
         caption = f"{caption_text}\n\n📅 {up_date} | 🔻 {downloads}"
         if has_perm and not testing_mode.get(chat_id):
             caption += f"\n⭐️ متوسط تقييم الطلاب: {avg_rt:.1f}/10"
 
-        # زر واحد فقط تحت الملف: فتح المجلد
+
         folder_label = build_folder_button_label(res.get("menu_path", ""))
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
         folder_markup = InlineKeyboardMarkup(row_width=1)
         folder_markup.add(InlineKeyboardButton(folder_label, url=deep_folder_url))
 
-        # إرسال المحتوى نفسه
+        set_file_context(chat_id, res, has_perm)
+
         if file_type == "text":
             bot.send_message(chat_id, res.get("content", base_name), reply_markup=folder_markup)
         elif file_type == "photo" and file_id:
@@ -692,22 +741,12 @@ def send_file_to_user(chat_id, res, has_perm):
         else:
             bot.send_message(chat_id, caption, reply_markup=folder_markup)
 
-        # أزرار الإجراءات في رسالة منفصلة، حتى تبقى بطاقة الملف نظيفة
-        if has_perm and not testing_mode.get(chat_id):
-            bot.send_message(
-                chat_id,
-                "⚙️ خيارات المشرف:",
-                reply_markup=_build_admin_actions_markup(file_id_str)
-            )
-        else:
-            bot.send_message(
-                chat_id,
-                "🌟 خيارات الطالب:",
-                reply_markup=_build_student_actions_markup(file_id_str)
-            )
+        send_file_actions_prompt(chat_id, has_perm)
 
     except Exception as e:
         logging.error(f"Send Error: {e}")
+
+
 
 # ==========================================
 # 10. المعالج المركزي (Router)
