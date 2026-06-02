@@ -252,6 +252,15 @@ def reset_modes(chat_id, clear_upload=True):
     action_payload.pop(chat_id, None)
 
 
+def safe_object_id(value):
+    try:
+        if value is None:
+            return None
+        return ObjectId(str(value))
+    except Exception:
+        return None
+
+
 
 def is_file_manager_mode(chat_id):
     path = user_path.get(chat_id, [])
@@ -297,6 +306,52 @@ def build_file_manager_entries(chat_id):
     return entries
 
 def _file_manager_return(chat_id):
+    if admin_action_mode.get(chat_id) == "file_actions":
+        if text == "✏️ إعادة تسمية":
+            admin_action_mode[chat_id] = "rename_file"
+            bot.send_message(chat_id, "✏️ أرسل الاسم الجديد للملف الآن:")
+            return
+        if text == "🗑️ حذف":
+            admin_action_mode[chat_id] = "confirm_delete_file"
+            confirm = ReplyKeyboardMarkup(resize_keyboard=True)
+            confirm.add(KeyboardButton("✅ نعم احذف"), KeyboardButton("❌ إلغاء"))
+            bot.send_message(chat_id, "⚠️ هل أنت متأكد من حذف هذا الملف نهائياً؟", reply_markup=confirm)
+            return
+        if text == "❌ إلغاء":
+            _finish_file_action(chat_id)
+            return
+
+    if mode == "confirm_delete_file":
+        if text == "✅ نعم احذف":
+            fid = action_payload.get(chat_id)
+            ok, result = _delete_file_by_id(chat_id, fid)
+            bot.send_message(chat_id, f"✅ تم حذف الملف: {result}" if ok else result)
+            _finish_file_action(chat_id)
+            return
+        if text == "❌ إلغاء":
+            admin_action_mode[chat_id] = "file_actions"
+            fdoc = None
+            if action_payload.get(chat_id):
+                try:
+                    fdoc = files_col.find_one({"_id": ObjectId(str(action_payload.get(chat_id)))})
+                except Exception:
+                    fdoc = None
+            if fdoc:
+                _show_selected_file_actions(chat_id, fdoc)
+            else:
+                _finish_file_action(chat_id)
+            return
+
+    if mode == "rename_file" and text and action_payload.get(chat_id):
+        new_name = text.strip()
+        if not new_name:
+            bot.send_message(chat_id, "❌ الاسم فارغ.")
+            return
+        ok, result = _rename_file_by_id(chat_id, action_payload.get(chat_id), new_name)
+        bot.send_message(chat_id, "✅ تم تغيير اسم الملف بنجاح." if ok else result)
+        _finish_file_action(chat_id)
+        return
+
     if is_file_manager_mode(chat_id):
         render_file_manager(chat_id)
     else:
@@ -850,11 +905,7 @@ def universal_handler(message):
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
 
-    # --------------------------------------------------
-    # File action flow must be handled BEFORE file-manager
-    # browsing, otherwise "yes delete / rename" texts are
-    # swallowed by the browser block and nothing happens.
-    # --------------------------------------------------
+    # File actions must be handled before file-manager navigation consumes the message.
     if admin_action_mode.get(chat_id) == "file_actions":
         if text == "✏️ إعادة تسمية":
             admin_action_mode[chat_id] = "rename_file"
@@ -863,7 +914,7 @@ def universal_handler(message):
         if text == "🗑️ حذف":
             admin_action_mode[chat_id] = "confirm_delete_file"
             confirm = ReplyKeyboardMarkup(resize_keyboard=True)
-            confirm.add("✅ نعم احذف", "❌ إلغاء")
+            confirm.add(KeyboardButton("✅ نعم احذف"), KeyboardButton("❌ إلغاء"))
             bot.send_message(chat_id, "⚠️ هل أنت متأكد من حذف هذا الملف نهائياً؟", reply_markup=confirm)
             return
         if text == "❌ إلغاء":
@@ -874,10 +925,7 @@ def universal_handler(message):
         if text == "✅ نعم احذف":
             fid = action_payload.get(chat_id)
             ok, result = _delete_file_by_id(chat_id, fid)
-            if ok:
-                bot.send_message(chat_id, f"✅ تم حذف الملف: {result}")
-            else:
-                bot.send_message(chat_id, result)
+            bot.send_message(chat_id, f"✅ تم حذف الملف: {result}" if ok else result)
             _finish_file_action(chat_id)
             return
         if text == "❌ إلغاء":
@@ -885,7 +933,7 @@ def universal_handler(message):
             fdoc = None
             if action_payload.get(chat_id):
                 try:
-                    fdoc = files_col.find_one({"_id": ObjectId(action_payload.get(chat_id))})
+                    fdoc = files_col.find_one({"_id": ObjectId(str(action_payload.get(chat_id)))})
                 except Exception:
                     fdoc = None
             if fdoc:
@@ -900,10 +948,7 @@ def universal_handler(message):
             bot.send_message(chat_id, "❌ الاسم فارغ.")
             return
         ok, result = _rename_file_by_id(chat_id, action_payload.get(chat_id), new_name)
-        if ok:
-            bot.send_message(chat_id, "✅ تم تغيير اسم الملف بنجاح.")
-        else:
-            bot.send_message(chat_id, result)
+        bot.send_message(chat_id, "✅ تم تغيير اسم الملف بنجاح." if ok else result)
         _finish_file_action(chat_id)
         return
 
@@ -947,7 +992,7 @@ def universal_handler(message):
             if selected["kind"] == "file":
                 f_doc = selected.get("doc") or files_col.find_one({"_id": ObjectId(selected["file_id"])})
                 if f_doc:
-                    _show_selected_file_actions(chat_id, f_doc)
+                    send_file_to_user(chat_id, f_doc, True)
                 else:
                     bot.send_message(chat_id, "❌ الملف غير موجود.")
                 return
