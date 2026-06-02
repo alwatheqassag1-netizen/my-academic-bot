@@ -352,7 +352,7 @@ def send_file_actions_prompt(chat_id, has_perm):
     try:
         bot.send_message(
             chat_id,
-            "\u200b",
+            "⚙️ أوامر الملف الحالي:",
             reply_markup=show_file_keyboard(chat_id, has_perm),
         )
     except Exception as exc:
@@ -379,6 +379,25 @@ def build_file_details_text(f_doc):
     )
 
 
+
+
+def cleanup_deleted_file(file_id_str):
+    """حذف الملف نهائياً مع تنظيف التوابع المرتبطة به."""
+    if not file_id_str:
+        return
+
+    try:
+        ratings_col.delete_many({"file_id": file_id_str})
+    except Exception as exc:
+        logging.error(f"Cleanup ratings error: {exc}")
+
+    try:
+        users_col.update_many(
+            {"favorites": file_id_str},
+            {"$pull": {"favorites": file_id_str}}
+        )
+    except Exception as exc:
+        logging.error(f"Cleanup favorites error: {exc}")
 def check_rate_limit(chat_id):
 
     now = time.time()
@@ -737,8 +756,8 @@ def send_file_to_user(chat_id, res, has_perm):
     """
     إرسال الملف بشكل عملي:
     - بطاقة الملف تحتوي على زر المجلد فقط.
-    - لوحة الأوامر الحقيقية تظهر ككيبورد Reply مستقل.
-    - يتم حفظ سياق الملف حتى تعمل الأزرار بشكل حرفي على الملف الحالي.
+    - لوحة الأوامر تظهر في رسالة مستقلة وواضحة.
+    - يتم حفظ سياق الملف حتى تعمل الأزرار حرفياً على الملف الحالي.
     """
     try:
         if not res:
@@ -749,7 +768,12 @@ def send_file_to_user(chat_id, res, has_perm):
         file_id = res.get("file_id")
         base_name = res.get("name", "وثيقة")
         caption_text = res.get("caption") or base_name
-        up_date = res.get("upload_date", datetime.utcnow()).strftime("%Y-%m-%d")
+        up_date = res.get("upload_date", datetime.utcnow())
+        if isinstance(up_date, datetime):
+            up_date = up_date.strftime("%Y-%m-%d")
+        else:
+            up_date = str(up_date)
+
         downloads = res.get("downloads", 0)
         avg_rt = get_average_rating(file_id_str)
 
@@ -956,9 +980,14 @@ def universal_handler(message):
             if f_oid:
                 f_doc = files_col.find_one({"_id": f_oid})
                 if f_doc:
-                    files_col.delete_one({"_id": f_oid})
-                    log_action(chat_id, "DELETE_FILE", f_doc.get("name", "file"))
-                    bot.send_message(chat_id, "✅ تم حذف الملف نهائياً.")
+                    try:
+                        files_col.delete_one({"_id": f_oid})
+                        cleanup_deleted_file(str(f_oid))
+                        log_action(chat_id, "DELETE_FILE", f_doc.get("name", "file"))
+                        bot.send_message(chat_id, "✅ تم حذف الملف نهائياً من قاعدة البيانات.")
+                    except Exception as e:
+                        logging.error(f"Delete file error: {e}")
+                        bot.send_message(chat_id, "❌ تعذر حذف الملف.")
                 else:
                     bot.send_message(chat_id, "❌ الملف غير موجود.")
             clear_file_context(chat_id)
@@ -984,8 +1013,6 @@ def universal_handler(message):
         user_path[chat_id] = []
         show_menu(chat_id)
         return
-
-    main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
 
     main_nav = ["🔝 القائمة الرئيسية", "🔙 الرجوع للقائمة السابقة", "🔙 الرجوع للقائمة الرئيسية", "🌟 ميزات الطالب", "⭐ ملفاتي المفضلة", "📞 التواصل مع المشرف العام", "👑 لوحة المشرف الرئيسي", "🛡️ لوحة المشرف العام", "👥 إدارة المشرفين", "🔑 صلاحيات المشرفين", "👤 عرض كمستخدم", "🛑 إنهاء العرض كمستخدم"] + list(global_academic_structure.keys())
     
@@ -1540,12 +1567,14 @@ def handle_inline_callbacks(call):
             return
         try:
             files_col.delete_one({"_id": ObjectId(obj_id)})
+            cleanup_deleted_file(obj_id)
             log_action(chat_id, "DELETE_FILE", f_doc.get('name', 'file'))
             bot.answer_callback_query(call.id, "✅ تم حذف الملف نهائياً.", show_alert=True)
             try:
                 bot.delete_message(chat_id, call.message.message_id)
             except Exception:
                 pass
+            clear_file_context(chat_id)
             show_menu(chat_id)
         except Exception as e:
             logging.error(f"Delete file error: {e}")
