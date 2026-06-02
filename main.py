@@ -1805,26 +1805,38 @@ def handle_inline_callbacks(call):
         pass
 
 # ==========================================
+# ==============================================================================
+# 12. تشغيل السيرفر الآمن (Webhook Setup & Production Routing)
+# ==============================================================================
 
-# ==========================================
-# 12. تشغيل السيرفر (Webhook Setup)
-# ==========================================
-
-@app.route('/webhook', methods=['POST'])
+# 🔒 المسار السري والمحمي لمنع التداخل أو الاختراق الروسي نهائياً
+@app.route('/LMS_Data_Secure_7524289470_AI_DS', methods=['POST'])
 def webhook_listen_route():
     if request.headers.get('content-type') == 'application/json':
-        bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
-        return "!", 200
+        try:
+            # قراءة البيانات القادمة من تليجرام وتمريرها للمعالجة برمجياً
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return "!", 200
+        except Exception as e:
+            logging.error(f"Error Processing Update: {e}")
+            return "Error", 500
     return "Invalid", 403
 
+# الصفحة الرئيسية للسيرفر للتأكد من الحالة عبر المتصفح
 @app.route("/")
-def index_home_route(): return "Bot V5.7 LMS Master Active & Running 🚀", 200
+def index_home_route(): 
+    return "Bot V5.7 LMS Master Active & Running 🚀", 200
 
 from flask import redirect
 
+# التوجيه الذكي للمجلدات الأكاديمية بنقرة واحدة
 @app.route('/f/<folder_id>')
 def redirect_to_folder(folder_id):
-    return redirect(f"https://t.me/{BOT_USERNAME}?start=folder_{folder_id}")
+    # استخدام EXPECTED_BOT_USERNAME لضمان التوجيه للبوت الصحيح دائماً
+    return redirect(f"https://t.me/{EXPECTED_BOT_USERNAME}?start=folder_{folder_id}")
 
 if __name__ == "__main__":
+    # تشغيل السيرفر على بورت ريندر الديناميكي المعتمد لضمان عدم انهيار الاستضافة
     app.run(host="0.0.0.0", port=PORT)
