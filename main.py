@@ -25,15 +25,16 @@ if sys.version_info >= (3, 0):
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_TOKEN = os.environ.get("API_TOKEN", "7524289470:AAGkeX96s1s6saxGP3uy14MN9it19nKn10A").strip()
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Alwatheq:alwatheq73@cluster0.ft0mdkt.mongodb.net/?appName=Cluster0").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-EXPECTED_BOT_USERNAME = os.environ.get("EXPECTED_BOT_USERNAME", "AI_DS_Taiz_bot").strip()
+# استخدم متغيرات البيئة على Render أو أي استضافة، ولا تضع القيم الحساسة داخل قاعدة البيانات.
+API_TOKEN = (os.environ.get("API_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip()
+MONGO_URI = (os.environ.get("MONGO_URI") or "").strip()
+GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
+EXPECTED_BOT_USERNAME = (os.environ.get("EXPECTED_BOT_USERNAME") or "AI_DS_Taiz_bot").strip()
 
 if not API_TOKEN:
-    raise RuntimeError("API_TOKEN is required.")
+    raise RuntimeError("API_TOKEN is required in environment variables.")
 if not MONGO_URI:
-    raise RuntimeError("MONGO_URI is required.")
+    raise RuntimeError("MONGO_URI is required in environment variables.")
 SUPER_ADMIN_ID = 6842543527
 
 START_TIME = datetime.utcnow()
@@ -296,14 +297,17 @@ def get_average_rating(file_id_str: str) -> float:
     except Exception:
         return 0.0
 
-def set_file_context(chat_id, file_doc, has_perm):
+def set_file_context(chat_id, file_doc, has_perm, message_id=None, actions_message_id=None):
     file_context_state[chat_id] = {
         "file_id": str(file_doc["_id"]),
         "menu_path": file_doc.get("menu_path", ""),
         "has_perm": bool(has_perm),
+        "message_id": message_id,
+        "actions_message_id": actions_message_id,
     }
     action_payload[chat_id] = str(file_doc["_id"])
     admin_action_mode[chat_id] = "file_actions" if has_perm and not testing_mode.get(chat_id) else "file_user_actions"
+
 
 def get_context_file(chat_id):
     ctx = file_context_state.get(chat_id) or {}
@@ -315,7 +319,21 @@ def get_context_file(chat_id):
         return None
     return files_col.find_one({"_id": oid})
 
-def clear_file_context(chat_id):
+
+def delete_context_messages(chat_id):
+    ctx = file_context_state.get(chat_id) or {}
+    for key in ("message_id", "actions_message_id"):
+        msg_id = ctx.get(key)
+        if msg_id:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+
+
+def clear_file_context(chat_id, remove_messages=False):
+    if remove_messages:
+        delete_context_messages(chat_id)
     file_context_state.pop(chat_id, None)
     action_payload.pop(chat_id, None)
     if admin_action_mode.get(chat_id) in (
@@ -333,6 +351,7 @@ def strip_file_button_prefix(text: str) -> str:
     cleaned = re.sub(r"^[📌🖼️📄📁]\s*", "", text).strip()
     return cleaned
 
+
 def resolve_selected_folder(chat_id, text):
     """إيجاد مجلد ديناميكي من الزر النصي الحالي."""
     if not text or not text.startswith("📁 "):
@@ -345,6 +364,7 @@ def resolve_selected_folder(chat_id, text):
         if normalize_text(folder.get("folder_name")) == target_norm:
             return folder
     return folders_col.find_one({"parent_path": path_str, "folder_name": folder_name})
+
 
 def resolve_selected_file(chat_id, text):
     """إيجاد ملف من الزر النصي الحالي داخل المسار الحالي."""
@@ -359,14 +379,12 @@ def resolve_selected_file(chat_id, text):
     if not all_docs:
         return None
 
-    # 1) مطابقة مباشرة بعد التطبيع
     for doc in all_docs:
         if normalize_text(doc.get("name")) == target_norm:
             return doc
         if normalize_text(doc.get("caption")) == target_norm:
             return doc
 
-    # 2) مطابقة بنهاية الاسم أو احتواء قوي
     for doc in all_docs:
         doc_name = normalize_text(doc.get("name"))
         doc_caption = normalize_text(doc.get("caption"))
@@ -376,6 +394,7 @@ def resolve_selected_file(chat_id, text):
             return doc
 
     return None
+
 
 def show_file_keyboard(chat_id, has_perm):
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -425,11 +444,14 @@ def show_file_keyboard(chat_id, has_perm):
 
 def send_file_actions_prompt(chat_id, has_perm):
     try:
-        bot.send_message(
+        sent = bot.send_message(
             chat_id,
             "⚙️ أوامر الملف الحالي:",
             reply_markup=show_file_keyboard(chat_id, has_perm),
         )
+        ctx = file_context_state.get(chat_id)
+        if ctx is not None:
+            ctx["actions_message_id"] = sent.message_id
     except Exception as exc:
         logging.error(f"File actions prompt error: {exc}")
 
@@ -454,8 +476,6 @@ def build_file_details_text(f_doc):
     )
 
 
-
-
 def cleanup_deleted_file(file_id_str):
     """حذف الملف نهائياً مع تنظيف التوابع المرتبطة به."""
     if not file_id_str:
@@ -467,19 +487,12 @@ def cleanup_deleted_file(file_id_str):
         logging.error(f"Cleanup ratings error: {exc}")
 
     try:
-        users_col.update_many(
-            {"favorites": file_id_str},
-            {"$pull": {"favorites": file_id_str}}
-        )
+        users_col.update_many({"favorites": file_id_str}, {"$pull": {"favorites": file_id_str}})
     except Exception as exc:
         logging.error(f"Cleanup favorites error: {exc}")
 
-    # احتياط إضافي لو كانت بعض السجلات القديمة خزنت ObjectId كسلسلة أو بصيغة أخرى.
     try:
-        users_col.update_many(
-            {"favorites": {"$regex": f"^{re.escape(file_id_str)}$"}},
-            {"$pull": {"favorites": file_id_str}}
-        )
+        users_col.update_many({"favorites": {"$regex": f"^{re.escape(file_id_str)}$"}}, {"$pull": {"favorites": file_id_str}})
     except Exception as exc:
         logging.error(f"Cleanup legacy favorites error: {exc}")
 
@@ -871,22 +884,21 @@ def send_file_to_user(chat_id, res, has_perm):
         folder_markup = InlineKeyboardMarkup(row_width=1)
         folder_markup.add(InlineKeyboardButton(folder_label, url=deep_folder_url))
 
-        set_file_context(chat_id, res, has_perm)
-
+        sent_msg = None
         if file_type == "text":
-            bot.send_message(chat_id, res.get("content", base_name), reply_markup=folder_markup)
+            sent_msg = bot.send_message(chat_id, res.get("content", base_name), reply_markup=folder_markup)
         elif file_type == "photo" and file_id:
-            bot.send_photo(chat_id, file_id, caption=caption, reply_markup=folder_markup)
+            sent_msg = bot.send_photo(chat_id, file_id, caption=caption, reply_markup=folder_markup)
         elif file_id:
-            bot.send_document(chat_id, file_id, caption=caption, reply_markup=folder_markup)
+            sent_msg = bot.send_document(chat_id, file_id, caption=caption, reply_markup=folder_markup)
         else:
-            bot.send_message(chat_id, caption, reply_markup=folder_markup)
+            sent_msg = bot.send_message(chat_id, caption, reply_markup=folder_markup)
 
+        set_file_context(chat_id, res, has_perm, message_id=getattr(sent_msg, "message_id", None))
         send_file_actions_prompt(chat_id, has_perm)
 
     except Exception as e:
         logging.error(f"Send Error: {e}")
-
 
 # ==========================================
 # 10. المعالج المركزي (Router)
@@ -1082,14 +1094,14 @@ def universal_handler(message):
             f_oid = safe_object_id(fid)
             if not f_oid:
                 bot.send_message(chat_id, "❌ الملف غير موجود.")
-                clear_file_context(chat_id)
+                clear_file_context(chat_id, remove_messages=True)
                 show_menu(chat_id)
                 return
 
             f_doc = files_col.find_one({"_id": f_oid})
             if not f_doc:
                 bot.send_message(chat_id, "❌ الملف غير موجود.")
-                clear_file_context(chat_id)
+                clear_file_context(chat_id, remove_messages=True)
                 show_menu(chat_id)
                 return
 
@@ -1104,12 +1116,12 @@ def universal_handler(message):
             except Exception as e:
                 logging.error(f"Delete file error: {e}")
                 bot.send_message(chat_id, "❌ تعذر حذف الملف.")
-            clear_file_context(chat_id)
+            clear_file_context(chat_id, remove_messages=True)
             show_menu(chat_id)
             return
 
         if text == "❌ إلغاء":
-            clear_file_context(chat_id)
+            clear_file_context(chat_id, remove_messages=True)
             show_menu(chat_id)
             return
 
@@ -1688,7 +1700,7 @@ def handle_inline_callbacks(call):
                 bot.delete_message(chat_id, call.message.message_id)
             except Exception:
                 pass
-            clear_file_context(chat_id)
+            clear_file_context(chat_id, remove_messages=True)
             show_menu(chat_id)
         except Exception as e:
             logging.error(f"Delete file error: {e}")
