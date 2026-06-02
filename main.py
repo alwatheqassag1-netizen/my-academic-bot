@@ -610,40 +610,104 @@ def show_menu(chat_id):
 # ==========================================
 # دالة إرسال الملفات السليمة والخالية من الأخطاء
 # ==========================================
+
+
+def _build_student_actions_markup(file_id_str):
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("⭐ إضافة للمفضلة", callback_data=f"fv_{file_id_str}"),
+        InlineKeyboardButton("⭐ تقييم الملف", callback_data=f"rt_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}")
+    )
+    return markup
+
+
+def _build_admin_actions_markup(file_id_str):
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("✏️ إعادة تسمية", callback_data=f"rn_{file_id_str}"),
+        InlineKeyboardButton("🗑️ حذف", callback_data=f"dl_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("🔄 استبدال الملف", callback_data=f"rp_{file_id_str}"),
+        InlineKeyboardButton("📦 نقل", callback_data=f"mv_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("🔼 للأعلى", callback_data=f"up_{file_id_str}"),
+        InlineKeyboardButton("🔽 للأسفل", callback_data=f"dn_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("📌 تثبيت", callback_data=f"pn_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("⭐ إضافة للمفضلة", callback_data=f"fv_{file_id_str}"),
+        InlineKeyboardButton("⭐ تقييم الملف", callback_data=f"rt_{file_id_str}")
+    )
+    markup.add(
+        InlineKeyboardButton("📝 تفاصيل", callback_data=f"rl_{file_id_str}")
+    )
+    return markup
+
+
 def send_file_to_user(chat_id, res, has_perm):
+    """
+    إرسال الملف بصورة مستقرة:
+    - بطاقة الملف نفسها تحتوي فقط على زر فتح المجلد.
+    - الأوامر الإضافية تظهر في رسالة منفصلة وتكون Inline فقط.
+    - لا يوجد file_context_state للمستخدم العادي، وبالتالي لن يعلق بعد فتح الملف.
+    """
     try:
         if not res:
             return
 
-        file_type = res.get('type', 'document')
-        file_id = res.get('file_id')
-        file_id_str = str(res['_id'])
-        base_name = res.get('name', 'وثيقة')
-        up_date = res.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')
+        file_id_str = str(res.get("_id"))
+        file_type = res.get("type", "document")
+        file_id = res.get("file_id")
+        base_name = res.get("name", "وثيقة")
+        caption_text = res.get("caption") or base_name
+        up_date = res.get("upload_date", datetime.utcnow()).strftime("%Y-%m-%d")
+        downloads = res.get("downloads", 0)
         avg_rt = get_average_rating(file_id_str)
-        caption = (res.get('caption') or base_name) + f"\n\n📅 {up_date} | 🔻 {res.get('downloads', 0)}"
+
+        # الوصف الظاهر للملف
+        caption = f"{caption_text}\n\n📅 {up_date} | 🔻 {downloads}"
         if has_perm and not testing_mode.get(chat_id):
             caption += f"\n⭐️ متوسط تقييم الطلاب: {avg_rt:.1f}/10"
 
-        folder_label = build_folder_button_label(res.get('menu_path', ''))
+        # زر واحد فقط تحت الملف: فتح المجلد
+        folder_label = build_folder_button_label(res.get("menu_path", ""))
         deep_folder_url = f"https://t.me/{BOT_USERNAME}?start=folder_{file_id_str}"
         folder_markup = InlineKeyboardMarkup(row_width=1)
         folder_markup.add(InlineKeyboardButton(folder_label, url=deep_folder_url))
 
-        if file_type == 'text':
-            bot.send_message(chat_id, res.get('content', base_name), reply_markup=folder_markup)
-        elif file_type == 'photo' and file_id:
+        # إرسال المحتوى نفسه
+        if file_type == "text":
+            bot.send_message(chat_id, res.get("content", base_name), reply_markup=folder_markup)
+        elif file_type == "photo" and file_id:
             bot.send_photo(chat_id, file_id, caption=caption, reply_markup=folder_markup)
         elif file_id:
             bot.send_document(chat_id, file_id, caption=caption, reply_markup=folder_markup)
         else:
             bot.send_message(chat_id, caption, reply_markup=folder_markup)
 
-        set_file_context(chat_id, res, has_perm)
-        bot.send_message(chat_id, "⚙️ خيارات الملف:", reply_markup=show_file_keyboard(chat_id, has_perm))
+        # أزرار الإجراءات في رسالة منفصلة، حتى تبقى بطاقة الملف نظيفة
+        if has_perm and not testing_mode.get(chat_id):
+            bot.send_message(
+                chat_id,
+                "⚙️ خيارات المشرف:",
+                reply_markup=_build_admin_actions_markup(file_id_str)
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                "🌟 خيارات الطالب:",
+                reply_markup=_build_student_actions_markup(file_id_str)
+            )
+
     except Exception as e:
         logging.error(f"Send Error: {e}")
-
 
 # ==========================================
 # 10. المعالج المركزي (Router)
@@ -687,21 +751,6 @@ def universal_handler(message):
 
     if text == "اللجنة العلمية" and path_str == "🌱 مستوى أول":
         bot.send_message(chat_id, settings.get("sci_text", DEFAULT_SCI_TEXT)); return
-
-    # File action state (works for both users and admins)
-    if file_context_state.get(chat_id):
-        ctx = file_context_state[chat_id]
-        ctx_file = None
-        try:
-            ctx_file = files_col.find_one({"_id": ObjectId(ctx["file_id"])})
-        except Exception:
-            ctx_file = None
-
-        if text == "❌ إلغاء":
-            clear_file_context(chat_id)
-            bot.send_message(chat_id, "✅ تم إلغاء العملية الجارية.")
-            show_menu(chat_id)
-            return
 
         if text == "🔙 الرجوع للقائمة السابقة":
             clear_file_context(chat_id)
@@ -1240,76 +1289,135 @@ def universal_handler(message):
 # ==========================================
 # 11. أزرار التحكم الجانبية (Inline Callbacks)
 # ==========================================
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('rn_', 'rp_', 'dl_', 'mv_', 'up_', 'dn_', 'pn_', 'fv_', 'rt_', 'str_', 'rl_')))
 def handle_inline_callbacks(call):
     chat_id = call.message.chat.id
-    try:
-        bot.answer_callback_query(call.id)
-    except Exception:
-        pass
 
     try:
         action, obj_id = call.data.split('_', 1)
     except Exception:
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
+            pass
         return
 
     if action == 'fv':
         users_col.update_one({"chat_id": chat_id}, {"$addToSet": {"favorites": obj_id}})
-        bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True)
+        try:
+            bot.answer_callback_query(call.id, "❤️ تمت إضافة الملف لمفضلتك بنجاح!", show_alert=True)
+        except Exception:
+            pass
         return
 
     if action == 'rt':
         m = InlineKeyboardMarkup(row_width=5)
         m.add(*[InlineKeyboardButton(str(i), callback_data=f"str_{i}_{obj_id}") for i in range(1, 11)])
-        try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
-        except: pass
+        try:
+            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=m)
+            bot.answer_callback_query(call.id)
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id)
+            except Exception:
+                pass
         return
 
     if action == 'str':
-        score, f_id = obj_id.split('_')
-        ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
-        bot.answer_callback_query(call.id, f"⭐️ تم حفظ تقييمك: {score}/10", show_alert=True)
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
+        try:
+            score, f_id = obj_id.split('_', 1)
+            ratings_col.update_one({"file_id": f_id, "user_id": chat_id}, {"$set": {"score": int(score)}}, upsert=True)
+            bot.answer_callback_query(call.id, f"⭐️ تم حفظ تقييمك: {score}/10", show_alert=True)
+            try:
+                bot.delete_message(chat_id, call.message.message_id)
+            except Exception:
+                pass
+        except Exception:
+            try:
+                bot.answer_callback_query(call.id, "❌ حدث خطأ أثناء حفظ التقييم.", show_alert=True)
+            except Exception:
+                pass
         return
 
     if action == 'rl':
         f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
         if f_doc:
-            bot.answer_callback_query(
-                call.id,
-                f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}",
-                show_alert=True,
-            )
+            try:
+                bot.answer_callback_query(
+                    call.id,
+                    f"📝 الملف: {f_doc.get('name')}\n📥 التحميلات: {f_doc.get('downloads', 0)}\n📅 الرفع: {f_doc.get('upload_date', datetime.utcnow()).strftime('%Y-%m-%d')}",
+                    show_alert=True,
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                bot.answer_callback_query(call.id, "❌ الملف غير موجود.", show_alert=True)
+            except Exception:
+                pass
         return
 
     f_doc = files_col.find_one({"_id": ObjectId(obj_id)})
     if not f_doc or not is_moderator(chat_id, f_doc['menu_path']):
-        bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+        try:
+            bot.answer_callback_query(call.id, "❌ عذراً، لا تمتلك الصلاحية الكافية.", show_alert=True)
+        except Exception:
+            pass
         return
 
     if action == 'dl':
-        files_col.delete_one({"_id": ObjectId(obj_id)})
-        log_action(chat_id, "DELETE_FILE", f_doc['name'])
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
+        try:
+            files_col.delete_one({"_id": ObjectId(obj_id)})
+            log_action(chat_id, "DELETE_FILE", f_doc.get('name', 'file'))
+            bot.answer_callback_query(call.id, "✅ تم حذف الملف نهائياً.", show_alert=True)
+        except Exception as e:
+            try:
+                bot.answer_callback_query(call.id, "❌ تعذر حذف الملف.", show_alert=True)
+            except Exception:
+                pass
+            logging.error(f"Delete file error: {e}")
+            return
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
         show_menu(chat_id)
+
     elif action == 'rn':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "rename_file"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "rename_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "✏️ الرجاء إرسال الاسم الجديد للملف الآن:")
+
     elif action == 'rp':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "replace_file"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "replace_file"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "🔄 الرجاء إرسال الملف البديل الآن:")
+
     elif action == 'mv':
-        reset_modes(chat_id); admin_action_mode[chat_id] = "move_file_dest"; action_payload[chat_id] = obj_id
+        reset_modes(chat_id)
+        admin_action_mode[chat_id] = "move_file_dest"
+        action_payload[chat_id] = obj_id
         bot.send_message(chat_id, "📦 يرجى تصفح الأقسام للوصول لموقع النقل واضغط زر التأكيد.")
-        user_path[chat_id] = []; show_menu(chat_id)
+        user_path[chat_id] = []
+        show_menu(chat_id)
+
     elif action in ['up', 'dn', 'pn']:
-        if action == 'pn':
-            files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
-        else:
-            files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
-        bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False)
+        try:
+            if action == 'pn':
+                files_col.update_one({"_id": ObjectId(obj_id)}, {"$set": {"sort_order": -999}})
+            else:
+                files_col.update_one({"_id": ObjectId(obj_id)}, {"$inc": {"sort_order": -1 if action == 'up' else 1}})
+            bot.answer_callback_query(call.id, "✅ تم تحديث الترتيب بنجاح.", show_alert=False)
+        except Exception as e:
+            try:
+                bot.answer_callback_query(call.id, "❌ تعذر تحديث الترتيب.", show_alert=True)
+            except Exception:
+                pass
+            logging.error(f"Sort update error: {e}")
+            return
         show_menu(chat_id)
 
 # ==========================================
